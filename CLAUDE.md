@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-An AWS CDK construct library that provisions a cloud-hosted coding agent workstation on Amazon Bedrock AgentCore. See `README.md` for the background and the relationship to [aki-kii/agentcore-claude-code](https://github.com/aki-kii/agentcore-claude-code), the stack this library generalizes.
+An AWS CDK construct library that provisions a cloud-hosted coding agent workstation on Amazon Bedrock AgentCore. See `README.md` for the background.
 
 The library is in the design phase — no construct has been implemented yet.
 

@@ -6,9 +6,17 @@ AWS CDK constructs that provision a **cloud-hosted workstation for a coding agen
 
 ## Background
 
-This library generalizes the infrastructure behind [aki-kii/agentcore-claude-code](https://github.com/aki-kii/agentcore-claude-code), which runs Claude Code inside an AgentCore Runtime backed by **compute type `Instances`** (not microVM). The agent runs on an EC2 managed instance in your own account, a persistent EBS volume keeps the home directory and repository checkouts across restarts, and the capacity provider's idle timeout shuts the instance down when nobody is using it.
+AgentCore Runtime can be backed by **compute type `Instances`** instead of microVM, which puts the agent on an EC2 managed instance in your own account. That is what makes this shape possible: one workstation that survives restarts, with a persistent EBS volume holding the home directory and repository checkouts, shut down by the capacity provider's idle timeout once nobody is using it.
 
-The goal is **not** to package that stack verbatim. The reference implementation carries account-specific values, a CI role that bootstraps itself, and a container contract entangled with one particular set of secrets. Deciding what belongs inside the construct and what the caller supplies is the work this repository is here to do.
+Assembling that by hand means getting several non-obvious things right at the same time:
+
+- A capacity provider and a runtime that agree on the volume name, or the workspace never mounts
+- `networkConfiguration` left unset on the runtime when a capacity provider supplies the network
+- An instance idle timeout longer than the runtime session timeout, or instances die while sessions are still live
+- An execution role trust policy that AgentCore accepts, which is not the same on the capacity side as on the runtime side
+- A capacity provider that is effectively immutable after creation — changing it replaces it, and the replacement takes the persistent volume with it
+
+Those are the problems this library is meant to absorb.
 
 ## Development
 
