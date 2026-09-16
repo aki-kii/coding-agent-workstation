@@ -52,6 +52,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
     'docs/ai-output/',
   ],
   githubOptions: {
+    // The generated Mergify rules require an approving review, which a sole maintainer
+    // cannot give, and the Mergify app is not installed. Use GitHub's native auto-merge.
+    mergify: false,
     pullRequestLintOptions: {
       semanticTitleOptions: {
         types: ['feat', 'fix', 'chore', 'docs', 'test', 'refactor', 'ci'],
