@@ -1,4 +1,6 @@
-import { awscdk, TomlFile } from 'projen';
+import { awscdk, Component, TomlFile } from 'projen';
+import { GitHub } from 'projen/lib/github';
+import type { JobStep } from 'projen/lib/github/workflows-model';
 import { NodePackageManager, UpgradeDependenciesSchedule } from 'projen/lib/javascript';
 
 // vite-plus requires Node.js >= 24.11.
@@ -22,6 +24,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   typescriptVersion: '~6.0.0',
   projenrcTs: true,
   packageManager: NodePackageManager.PNPM,
+  pnpmVersion: '12.4.2',
   workflowNodeVersion: nodeVersion,
   buildWorkflowOptions: {
     mutableInstall: false,
@@ -29,6 +32,8 @@ const project = new awscdk.AwsCdkConstructLibrary({
   pnpmOptions: {
     workspaceYamlOptions: {
       minimumReleaseAge: 1440,
+      // Its postinstall only re-checks the platform binary pnpm already installed.
+      allowBuilds: { esbuild: false },
     },
   },
 
@@ -98,6 +103,27 @@ new TomlFile(project, 'mise.toml', {
     },
   },
 });
+
+// pnpm/action-setup installs pnpm from npm; pnpm 12 ships as a native binary through pnpm/setup.
+class NativePnpmSetup extends Component {
+  public preSynthesize(): void {
+    for (const workflow of GitHub.of(this.project)?.workflows ?? []) {
+      for (const [id, job] of Object.entries(workflow.jobs)) {
+        if (!('steps' in job)) continue;
+        // projen renders some jobs' steps lazily at synth time.
+        const original = job.steps as JobStep[] | (() => JobStep[]);
+        const steps = () =>
+          (typeof original === 'function' ? original() : original).map((step) =>
+            step.uses?.startsWith('pnpm/action-setup@')
+              ? { ...step, uses: 'pnpm/setup@v2.1.0', with: { ...step.with, install: false } }
+              : step,
+          );
+        workflow.updateJob(id, { ...job, steps: steps as unknown as JobStep[] });
+      }
+    }
+  }
+}
+new NativePnpmSetup(project);
 
 project.addPackageIgnore('/vite.config.ts');
 project.addPackageIgnore('/mise.toml');
