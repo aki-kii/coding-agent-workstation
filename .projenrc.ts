@@ -1,5 +1,10 @@
-import { awscdk } from 'projen';
-import { NodePackageManager, TrailingComma } from 'projen/lib/javascript';
+import { awscdk, Component, TomlFile } from 'projen';
+import { GitHub } from 'projen/lib/github';
+import type { JobStep } from 'projen/lib/github/workflows-model';
+import { NodePackageManager, UpgradeDependenciesSchedule } from 'projen/lib/javascript';
+
+// vite-plus requires Node.js >= 24.11.
+const nodeVersion = '24';
 
 const project = new awscdk.AwsCdkConstructLibrary({
   name: 'coding-agent-workstation',
@@ -11,35 +16,47 @@ const project = new awscdk.AwsCdkConstructLibrary({
   license: 'Apache-2.0',
   keywords: ['aws', 'cdk', 'aws-cdk', 'bedrock', 'agentcore', 'claude-code', 'coding-agent'],
 
-  // CfnCapacityProvider — the L1 this library is built around — first shipped in
-  // aws-cdk-lib 2.268.0, so that is the floor for the peer dependency.
+  // First release with CfnCapacityProvider.
   cdkVersion: '2.268.0',
   defaultReleaseBranch: 'main',
   jsiiVersion: '~6.0.0',
-  // jsii 6 requires typescript ~6.0. projen's default (latest) pulls in TS 7, which
-  // typescript-eslint (TS <6.1 only) refuses to load, so pin it explicitly.
+  // jsii 6 cannot compile with TypeScript 7, projen's default.
   typescriptVersion: '~6.0.0',
   projenrcTs: true,
   packageManager: NodePackageManager.PNPM,
-  workflowNodeVersion: '24',
-
-  prettier: true,
-  prettierOptions: {
-    settings: {
-      singleQuote: true,
-      trailingComma: TrailingComma.ALL,
-      semi: true,
-      printWidth: 100,
+  pnpmVersion: '12.4.2',
+  workflowNodeVersion: nodeVersion,
+  buildWorkflowOptions: {
+    mutableInstall: false,
+  },
+  pnpmOptions: {
+    workspaceYamlOptions: {
+      minimumReleaseAge: 1440,
+      // Its postinstall only re-checks the platform binary pnpm already installed.
+      allowBuilds: { esbuild: false },
     },
   },
-  eslintOptions: {
-    dirs: ['src'],
-    devdirs: ['test', 'projenrc'],
-    prettier: true,
-    ignorePatterns: ['example/**/*', 'test/*.snapshot/**/*', '*.d.ts'],
-  },
-  jestOptions: {
-    configFilePath: 'jest.config.json',
+
+  // Replaced by Vite+ (vite.config.ts).
+  eslint: false,
+  prettier: false,
+  jest: false,
+  devDeps: [
+    'vite-plus',
+    'oxlint-plugin-awscdk',
+    '@aws-cdk/integ-runner',
+    // Must match cdkVersion.
+    '@aws-cdk/integ-tests-alpha@2.268.0-alpha.0',
+    'aws-cdk',
+    'tsx',
+  ],
+
+  depsUpgradeOptions: {
+    workflowOptions: {
+      schedule: UpgradeDependenciesSchedule.WEEKLY,
+    },
+    // Pinned on purpose; upgrade by hand.
+    exclude: ['aws-cdk-lib', '@aws-cdk/integ-tests-alpha', 'typescript', 'jsii', 'jsii-rosetta'],
   },
 
   gitignore: [
@@ -50,10 +67,10 @@ const project = new awscdk.AwsCdkConstructLibrary({
     '.idea/',
     // Scratch space for agent-generated research and drafts. Local only.
     'docs/ai-output/',
+    'cdk-integ.out.*',
   ],
   githubOptions: {
-    // The generated Mergify rules require an approving review, which a sole maintainer
-    // cannot give, and the Mergify app is not installed, so the generated file would be inert.
+    // The Mergify app is not installed, and its rules need a review a sole maintainer cannot give.
     mergify: false,
     pullRequestLintOptions: {
       semanticTitleOptions: {
@@ -65,5 +82,50 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // Enable once the distribution story (npm only vs. multi-language via jsii) is settled.
   release: false,
 });
+
+project.testTask.reset('vp test run');
+project.testTask.exec('vp check');
+
+project.addTask('integ', {
+  description: 'Deploy test/integ.*.ts to AWS and compare against the committed snapshots',
+  exec: 'integ-runner --no-clean --parallel-regions ap-northeast-1 --language typescript --app "tsx {filePath}"',
+});
+project.addTask('integ:destroy', {
+  description: 'Destroy the stacks left behind by integ',
+  exec: 'for d in test/integ.*.snapshot; do [ -d "$d" ] || continue; cdk destroy --app "$d" --all --force; done',
+});
+
+new TomlFile(project, 'mise.toml', {
+  obj: {
+    tools: {
+      node: nodeVersion,
+      pnpm: project.package.pnpmVersion,
+    },
+  },
+});
+
+// pnpm/action-setup installs pnpm from npm; pnpm 12 ships as a native binary through pnpm/setup.
+class NativePnpmSetup extends Component {
+  public preSynthesize(): void {
+    for (const workflow of GitHub.of(this.project)?.workflows ?? []) {
+      for (const [id, job] of Object.entries(workflow.jobs)) {
+        if (!('steps' in job)) continue;
+        // projen renders some jobs' steps lazily at synth time.
+        const original = job.steps as JobStep[] | (() => JobStep[]);
+        const steps = () =>
+          (typeof original === 'function' ? original() : original).map((step) =>
+            step.uses?.startsWith('pnpm/action-setup@')
+              ? { ...step, uses: 'pnpm/setup@v2.1.0', with: { ...step.with, install: false } }
+              : step,
+          );
+        workflow.updateJob(id, { ...job, steps: steps as unknown as JobStep[] });
+      }
+    }
+  }
+}
+new NativePnpmSetup(project);
+
+project.addPackageIgnore('/vite.config.ts');
+project.addPackageIgnore('/mise.toml');
 
 project.synth();

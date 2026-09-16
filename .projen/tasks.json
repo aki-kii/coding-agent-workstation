@@ -136,31 +136,6 @@
         }
       ]
     },
-    "eslint": {
-      "name": "eslint",
-      "description": "Runs eslint against the codebase",
-      "env": {
-        "ESLINT_USE_FLAT_CONFIG": "false",
-        "NODE_NO_WARNINGS": "1"
-      },
-      "steps": [
-        {
-          "execArgs": [
-            "eslint",
-            "--ext",
-            ".ts,.tsx",
-            "--fix",
-            "--no-error-on-unmatched-pattern",
-            "$@",
-            "src",
-            "test",
-            "projenrc",
-            ".projenrc.ts"
-          ],
-          "receiveArgs": true
-        }
-      ]
-    },
     "install": {
       "name": "install",
       "description": "Install project dependencies and update lockfile (non-frozen)",
@@ -176,6 +151,24 @@
       "steps": [
         {
           "exec": "pnpm i --frozen-lockfile"
+        }
+      ]
+    },
+    "integ": {
+      "name": "integ",
+      "description": "Deploy test/integ.*.ts to AWS and compare against the committed snapshots",
+      "steps": [
+        {
+          "exec": "integ-runner --no-clean --parallel-regions ap-northeast-1 --language typescript --app \"tsx {filePath}\""
+        }
+      ]
+    },
+    "integ:destroy": {
+      "name": "integ:destroy",
+      "description": "Destroy the stacks left behind by integ",
+      "steps": [
+        {
+          "exec": "for d in test/integ.*.snapshot; do [ -d \"$d\" ] || continue; cdk destroy --app \"$d\" --all --force; done"
         }
       ]
     },
@@ -240,27 +233,10 @@
       "description": "Run tests",
       "steps": [
         {
-          "execArgs": [
-            "jest",
-            "--passWithNoTests",
-            "--updateSnapshot"
-          ],
-          "receiveArgs": true
+          "exec": "vp test run"
         },
         {
-          "spawn": "eslint"
-        }
-      ]
-    },
-    "test:watch": {
-      "name": "test:watch",
-      "description": "Run jest in watch mode",
-      "steps": [
-        {
-          "execArgs": [
-            "jest",
-            "--watch"
-          ]
+          "exec": "vp check"
         }
       ]
     },
@@ -281,7 +257,7 @@
             "--peer",
             "--no-deprecated",
             "--dep=dev,prod,peer,optional",
-            "--filter=@types/jest,eslint-config-prettier,eslint-import-resolver-typescript,eslint-plugin-import,eslint-plugin-prettier,jest,jsii-diff,jsii-pacmak,prettier,projen,ts-jest,ts-node"
+            "--filter=@aws-cdk/integ-runner,aws-cdk,jsii-diff,jsii-pacmak,oxlint-plugin-awscdk,projen,ts-node,tsx,vite-plus"
           ]
         },
         {
@@ -291,28 +267,17 @@
           "execArgs": [
             "pnpm",
             "update",
-            "@types/jest",
+            "@aws-cdk/integ-runner",
             "@types/node",
-            "@typescript-eslint/eslint-plugin",
-            "@typescript-eslint/parser",
-            "eslint-config-prettier",
-            "eslint-import-resolver-typescript",
-            "eslint-plugin-import",
-            "eslint-plugin-prettier",
-            "eslint",
-            "jest",
-            "jest-junit",
+            "aws-cdk",
             "jsii-diff",
             "jsii-docgen",
             "jsii-pacmak",
-            "jsii-rosetta",
-            "jsii",
-            "prettier",
+            "oxlint-plugin-awscdk",
             "projen",
-            "ts-jest",
             "ts-node",
-            "typescript",
-            "aws-cdk-lib",
+            "tsx",
+            "vite-plus",
             "constructs"
           ]
         },

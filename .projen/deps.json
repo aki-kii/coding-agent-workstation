@@ -1,7 +1,12 @@
 {
   "dependencies": [
     {
-      "name": "@types/jest",
+      "name": "@aws-cdk/integ-runner",
+      "type": "build"
+    },
+    {
+      "name": "@aws-cdk/integ-tests-alpha",
+      "version": "2.268.0-alpha.0",
       "type": "build"
     },
     {
@@ -10,43 +15,7 @@
       "type": "build"
     },
     {
-      "name": "@typescript-eslint/eslint-plugin",
-      "version": "^8",
-      "type": "build"
-    },
-    {
-      "name": "@typescript-eslint/parser",
-      "version": "^8",
-      "type": "build"
-    },
-    {
-      "name": "eslint-config-prettier",
-      "type": "build"
-    },
-    {
-      "name": "eslint-import-resolver-typescript",
-      "type": "build"
-    },
-    {
-      "name": "eslint-plugin-import",
-      "type": "build"
-    },
-    {
-      "name": "eslint-plugin-prettier",
-      "type": "build"
-    },
-    {
-      "name": "eslint",
-      "version": "^9",
-      "type": "build"
-    },
-    {
-      "name": "jest",
-      "type": "build"
-    },
-    {
-      "name": "jest-junit",
-      "version": "^17",
+      "name": "aws-cdk",
       "type": "build"
     },
     {
@@ -73,7 +42,7 @@
       "type": "build"
     },
     {
-      "name": "prettier",
+      "name": "oxlint-plugin-awscdk",
       "type": "build"
     },
     {
@@ -81,16 +50,20 @@
       "type": "build"
     },
     {
-      "name": "ts-jest",
+      "name": "ts-node",
       "type": "build"
     },
     {
-      "name": "ts-node",
+      "name": "tsx",
       "type": "build"
     },
     {
       "name": "typescript",
       "version": "~6.0.0",
+      "type": "build"
+    },
+    {
+      "name": "vite-plus",
       "type": "build"
     },
     {

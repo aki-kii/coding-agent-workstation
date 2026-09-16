@@ -23,17 +23,21 @@ Those are the problems this library is meant to absorb.
 This project is managed by [projen](https://github.com/projen/projen). Project configuration lives in `.projenrc.ts`; generated files (`package.json`, `tsconfig.json`, `.github/workflows/`, and so on) are overwritten on the next synth, so edit `.projenrc.ts` instead.
 
 ```sh
-pnpm install       # install dependencies
-npx projen         # synthesize generated files from .projenrc.ts
-npx projen build   # compile (jsii) -> docgen -> test -> eslint -> package
-npx projen test    # tests and lint only
+mise install              # install Node.js and pnpm
+pnpm install              # install dependencies
+npx projen                # synthesize generated files from .projenrc.ts
+npx projen build          # compile (jsii) -> docgen -> test -> package
+npx projen test           # vp test run, then vp check (format, lint, type check)
+npx projen integ          # deploy test/integ.*.ts to AWS (needs credentials)
+npx projen integ:destroy  # tear down what integ left behind
 ```
+
+Formatting, linting, type checking and tests run through [Vite+](https://viteplus.dev/) (`vp`): Oxfmt, Oxlint with [oxlint-plugin-awscdk](https://awscdk-lint.dev/), and Vitest, all configured in `vite.config.ts`. projen's ESLint, Prettier and Jest components are turned off.
 
 ### Requirements
 
-- Node.js 24
-- pnpm
-- TypeScript is pinned to the 6.x line. jsii 6 requires `typescript ~6.0`, and typescript-eslint does not support TS 7 yet — leaving projen's default in place breaks both synth and lint. See `typescriptVersion` in `.projenrc.ts`.
+- [mise](https://mise.jdx.dev/) — `mise install` provides Node.js 24 and pnpm at the versions in `mise.toml`. That file is generated from `.projenrc.ts`, and CI uses the same versions. Use mise for these rather than `vp env`.
+- TypeScript is pinned to the 6.x line because jsii 6 requires `typescript ~6.0`; leaving projen's default in place breaks the compile. `vp check` type checks with TypeScript 7 (tsgolint) independently of that pin. See `typescriptVersion` in `.projenrc.ts`.
 
 ## License
 
