@@ -1,11 +1,10 @@
-// Claude Code hook: verify edited files when the agent stops.
-//   record  (PostToolUse)      remember which files were edited
+// Claude Code hook: verify uncommitted changes when the agent stops.
 //   reset   (UserPromptSubmit) start a new retry budget
 //   stop    (Stop)             format, lint and test; send failures back to the agent
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { join, relative } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 
 const MAX_RETRIES = 3;
@@ -18,31 +17,19 @@ if (!root) process.exit(0);
 
 const stateDir = join(tmpdir(), 'claude-verify');
 mkdirSync(stateDir, { recursive: true });
-const editedPath = join(stateDir, `${input.session_id}.edited`);
 const statePath = join(stateDir, `${input.session_id}.json`);
 
-if (mode === 'record') record();
-else if (mode === 'reset') saveState({ attempts: 0, lastSignature: null });
+if (mode === 'reset') saveState({ attempts: 0, lastSignature: null });
 else if (mode === 'stop') stop();
 
-function record() {
-  const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
-  if (!file) return;
-  const rel = relative(root, resolve(input.cwd ?? root, file));
-  if (rel.startsWith('..') || isAbsolute(rel)) return;
-  // Append-only: parallel tool calls must not overwrite each other.
-  appendFileSync(editedPath, `${rel}\n`);
-}
-
 function stop() {
-  const edited = readEdited();
-  if (edited.length === 0) return;
+  const changed = changedFiles();
+  if (changed.length === 0) return;
 
-  const existing = edited.filter((f) => existsSync(join(root, f)));
-  const failures = [...runFormat(existing), ...runLint(), ...runTests(edited, existing)];
+  const existing = changed.filter((f) => existsSync(join(root, f)));
+  const failures = [...runFormat(existing), ...runLint(), ...runTests(changed, existing)];
 
   if (failures.length === 0) {
-    writeFileSync(editedPath, '');
     saveState({ attempts: 0, lastSignature: null });
     return;
   }
@@ -54,7 +41,6 @@ function stop() {
 
   const repeated = signature === state.lastSignature;
   if (attempts > MAX_RETRIES || repeated) {
-    // Keep the edited list so the next turn verifies again.
     saveState({ attempts: 0, lastSignature: null });
     const why = repeated
       ? 'the same errors occurred twice in a row'
@@ -86,7 +72,7 @@ function runFormat(files) {
 }
 
 function runLint() {
-  // Whole project: a change can break types in files that were not edited.
+  // Whole project: a change can break types in files that were not changed.
   const r = vp(['lint', '--quiet', '--format=agent']);
   if (r.status === 0) return [];
   // e.g. "src/index.ts:4:9: error typescript(TS2322): ..."
@@ -97,9 +83,9 @@ function runLint() {
   return [{ step: 'lint', output: r.output, signatures }];
 }
 
-function runTests(edited, existing) {
+function runTests(changed, existing) {
   const inTree = (f) => /^(src|test)\//.test(f);
-  const scoped = edited.every((f) => f.endsWith('.md') || (inTree(f) && existing.includes(f)));
+  const scoped = changed.every((f) => f.endsWith('.md') || (inTree(f) && existing.includes(f)));
   const targets = existing.filter(inTree);
 
   if (scoped && targets.length === 0) return [];
@@ -154,14 +140,24 @@ function vp(args) {
   return { status: r.status ?? 1, output: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ?? ''}` };
 }
 
+function git(args, cwd = root) {
+  return spawnSync('git', args, { cwd, encoding: 'utf8' });
+}
+
 function gitRoot(cwd) {
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
+  const r = git(['rev-parse', '--show-toplevel'], cwd);
   return r.status === 0 ? r.stdout.trim() : null;
 }
 
-function readEdited() {
-  if (!existsSync(editedPath)) return [];
-  return [...new Set(readFileSync(editedPath, 'utf8').split('\n').filter(Boolean))];
+// Tracked changes against HEAD, plus untracked files that are not ignored.
+function changedFiles() {
+  const lines = (args) => git(args).stdout.split('\n').filter(Boolean);
+  return [
+    ...new Set([
+      ...lines(['diff', '--name-only', 'HEAD']),
+      ...lines(['ls-files', '--others', '--exclude-standard']),
+    ]),
+  ];
 }
 
 function loadState() {
