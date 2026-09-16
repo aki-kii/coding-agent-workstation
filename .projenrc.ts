@@ -53,7 +53,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   ],
   githubOptions: {
     // The generated Mergify rules require an approving review, which a sole maintainer
-    // cannot give, and the Mergify app is not installed. Use GitHub's native auto-merge.
+    // cannot give, and the Mergify app is not installed, so the generated file would be inert.
     mergify: false,
     pullRequestLintOptions: {
       semanticTitleOptions: {
