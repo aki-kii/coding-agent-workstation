@@ -1,4 +1,6 @@
-import { awscdk, TomlFile } from 'projen';
+import { awscdk, Component, TomlFile } from 'projen';
+import { GitHub } from 'projen/lib/github';
+import type { JobStep } from 'projen/lib/github/workflows-model';
 import { NodePackageManager, UpgradeDependenciesSchedule } from 'projen/lib/javascript';
 
 // vite-plus requires Node.js >= 24.11.
@@ -103,17 +105,25 @@ new TomlFile(project, 'mise.toml', {
 });
 
 // pnpm/action-setup installs pnpm from npm; pnpm 12 ships as a native binary through pnpm/setup.
-project.github?.actions.set('pnpm/action-setup', 'pnpm/setup@v2.1.0');
-// pnpm/setup would otherwise run its own install before Node.js is set up. The indices point at
-// the "Setup pnpm" steps; check the generated workflows after upgrading projen.
-const pnpmSetupSteps: Array<[workflow: string, path: string]> = [
-  ['build', 'jobs.build.steps.1'],
-  ['build', 'jobs.package-js.steps.3'],
-  ['upgrade', 'jobs.upgrade.steps.1'],
-];
-for (const [workflow, path] of pnpmSetupSteps) {
-  project.github?.tryFindWorkflow(workflow)?.file?.addOverride(`${path}.with.install`, false);
+class NativePnpmSetup extends Component {
+  public preSynthesize(): void {
+    for (const workflow of GitHub.of(this.project)?.workflows ?? []) {
+      for (const [id, job] of Object.entries(workflow.jobs)) {
+        if (!('steps' in job)) continue;
+        // projen renders some jobs' steps lazily at synth time.
+        const original = job.steps as JobStep[] | (() => JobStep[]);
+        const steps = () =>
+          (typeof original === 'function' ? original() : original).map((step) =>
+            step.uses?.startsWith('pnpm/action-setup@')
+              ? { ...step, uses: 'pnpm/setup@v2.1.0', with: { ...step.with, install: false } }
+              : step,
+          );
+        workflow.updateJob(id, { ...job, steps: steps as unknown as JobStep[] });
+      }
+    }
+  }
 }
+new NativePnpmSetup(project);
 
 project.addPackageIgnore('/vite.config.ts');
 project.addPackageIgnore('/mise.toml');
