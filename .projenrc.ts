@@ -11,7 +11,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
   license: 'Apache-2.0',
   keywords: ['aws', 'cdk', 'aws-cdk', 'bedrock', 'agentcore', 'claude-code', 'coding-agent'],
 
-  cdkVersion: '2.220.0',
+  // CfnCapacityProvider — the L1 this library is built around — first shipped in
+  // aws-cdk-lib 2.268.0, so that is the floor for the peer dependency.
+  cdkVersion: '2.268.0',
   defaultReleaseBranch: 'main',
   jsiiVersion: '~6.0.0',
   // jsii 6 requires typescript ~6.0. projen's default (latest) pulls in TS 7, which
