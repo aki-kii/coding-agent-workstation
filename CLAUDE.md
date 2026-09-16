@@ -50,6 +50,8 @@ Cheapest first. Catch what you can before reaching a slower layer.
 2. **`pnpm exec vp test run`** (no AWS) — unit tests. Use `Template.fromStack(...).toJSON()` with `toMatchSnapshot()` as a net for changes that reach further than intended. Beyond that, write assertions only for what types, lint and synth cannot catch (for example string paths passed to `addPropertyOverride`); do not re-assert configuration values the implementation already states.
 3. **`npx projen integ`** (AWS, only when asked) — deploys `test/integ.*.ts` for real in ap-northeast-1 with `--no-clean`. Run `npx projen integ:destroy` when done.
 
+Layers 1 and 2 also run automatically. When a turn that edited files ends, the Stop hook in `.claude/settings.json` (`.claude/hooks/verify.mjs`) formats the edited files, lints the whole project, and runs the tests related to the edited files (all tests when a file outside `src/` and `test/` changed, or when nothing imports the edited source). On failure it sends the errors back and you keep fixing. It gives up after 3 retries, or as soon as the same errors (compared by `file:line:rule`) come back twice in a row; then stop and report what is left.
+
 **Never update snapshots on your own** (`vp test -u`, integ-runner `--update-on-failed`). Report the diff instead; an agent that can update snapshots has switched the net off.
 
 Integration test stacks must not set physical names, and must set `RemovalPolicy.DESTROY` explicitly.

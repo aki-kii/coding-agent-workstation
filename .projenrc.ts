@@ -68,6 +68,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     // Scratch space for agent-generated research and drafts. Local only.
     'docs/ai-output/',
     'cdk-integ.out.*',
+    '.claude/worktrees/',
   ],
   githubOptions: {
     // The Mergify app is not installed, and its rules need a review a sole maintainer cannot give.
@@ -127,5 +128,6 @@ new NativePnpmSetup(project);
 
 project.addPackageIgnore('/vite.config.ts');
 project.addPackageIgnore('/mise.toml');
+project.addPackageIgnore('/.claude/');
 
 project.synth();

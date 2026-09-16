@@ -18,6 +18,7 @@ tsconfig.tsbuildinfo
 !.jsii
 /vite.config.ts
 /mise.toml
+/.claude/
 /.gitattributes
 /.projenrc.ts
 /projenrc
