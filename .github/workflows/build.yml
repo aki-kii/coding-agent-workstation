@@ -30,7 +30,7 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - name: Install dependencies
-        run: pnpm i --no-frozen-lockfile
+        run: pnpm i --frozen-lockfile
       - name: build
         run: pnpm exec projen build
       - name: Find mutations

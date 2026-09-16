@@ -40,6 +40,8 @@ npx projen integ:destroy  # tear down what integ left behind
 
 Run `npx projen build` before committing. It is the same pipeline CI runs.
 
+CI installs with `--frozen-lockfile`, so commit `pnpm-lock.yaml` together with any dependency change. `pnpm-workspace.yaml` sets `minimumReleaseAge` to one day: a version published less than 24 hours ago cannot be installed. Wait it out rather than adding an exclusion.
+
 ## Verification
 
 Cheapest first. Catch what you can before reaching a slower layer.

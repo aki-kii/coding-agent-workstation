@@ -26,6 +26,18 @@ const project = new awscdk.AwsCdkConstructLibrary({
   projenrcTs: true,
   packageManager: NodePackageManager.PNPM,
   workflowNodeVersion: nodeVersion,
+  // Install exactly what pnpm-lock.yaml records. projen's default lets CI re-resolve and quietly
+  // build against dependencies nobody reviewed; a stale lockfile should fail instead.
+  buildWorkflowOptions: {
+    mutableInstall: false,
+  },
+  pnpmOptions: {
+    workspaceYamlOptions: {
+      // Refuse versions published less than a day ago, so a compromised release has time to be
+      // noticed and pulled before it reaches this project, locally or in CI.
+      minimumReleaseAge: 1440,
+    },
+  },
 
   // Formatting, linting, type checking and tests all run through Vite+ (`vp`), configured in
   // vite.config.ts. projen's ESLint, Prettier and Jest components are off so that each job has
