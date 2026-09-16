@@ -56,10 +56,20 @@ Integration test stacks must not set physical names, and must set `RemovalPolicy
 
 ## Version constraints
 
-Two pins in `.projenrc.ts` are deliberate and load-bearing. Both carry comments explaining why; read them before changing either. The weekly upgrade workflow excludes both, along with the packages that must move with them.
+Two pins in `.projenrc.ts` are deliberate and load-bearing. Read this section before changing either. The weekly upgrade workflow excludes both, along with the packages that must move with them.
 
 - **`typescriptVersion: '~6.0.0'`** — jsii 6 requires `typescript ~6.0`. Letting projen resolve `latest` breaks the compile. `jsii` and `jsii-rosetta` are held on the same line.
 - **`cdkVersion: '2.268.0'`** — `CfnCapacityProvider`, the L1 this library is built around, first shipped in aws-cdk-lib 2.268.0. `@aws-cdk/integ-tests-alpha` is released in lockstep with aws-cdk-lib and must stay on `2.268.0-alpha.0`.
+
+## Comments
+
+Keep comments short and few. The reference is [go-to-k/ecr-scan-verifier](https://github.com/go-to-k/ecr-scan-verifier).
+
+- **Comment only what the code cannot say.** Examples: a service needs a permission, a value must match another value, a tool crashes on some input. Do not restate what a name, option or value already says.
+- **One line, rarely two.** State the fact. Leave out the reasoning chain, the consequences and the alternatives you considered. Longer reasoning belongs in this file, the pull request, or an issue.
+- **No comments on routine configuration.** In `.projenrc.ts` and `vite.config.ts`, an option such as `eslint: false` or `minimumReleaseAge: 1440` needs no comment. Comment a value only when it is a pin or a workaround that someone could reasonably "fix" back.
+- **Short labels are fine for sections of a long function.** Examples: `// ECR permissions`, `// 1. Evaluate findings`.
+- **Public API JSDoc is the exception.** jsii turns it into `API.md` and the docs for every language. Document every exported member, with `@default` for every optional prop, and add a `**Note**:` paragraph for behavior a user would not expect.
 
 ## jsii constraints
 

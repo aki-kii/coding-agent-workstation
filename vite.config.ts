@@ -1,16 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite-plus';
 
-// Files projen writes are regenerated on every synth, so formatting or linting them only produces
-// a diff the next synth reverts. projen marks each of them linguist-generated in .gitattributes;
-// reading that list keeps this config from drifting when .projenrc.ts adds or drops a component.
+// The next synth would revert any change vp makes to these.
 const projenGenerated = readFileSync('.gitattributes', 'utf8')
   .split('\n')
   .filter((line) => line.includes('linguist-generated'))
   .map((line) => line.split(/\s+/)[0].replace(/^\//, ''));
 
 const buildOutput = ['lib/**', 'dist/**', '.jsii', 'tsconfig.tsbuildinfo', 'coverage/**'];
-// Synthesized CloudFormation, written by integ-runner.
 const integSnapshots = ['test/*.snapshot/**'];
 
 export default defineConfig({
@@ -30,15 +27,10 @@ export default defineConfig({
     },
     overrides: [
       {
-        // Only src/ and test/ belong to a tsconfig project the type checker can see (tsconfig.json
-        // and test/tsconfig.json). .projenrc.ts and this file sit at the root outside both, and
-        // the plugin's type-aware rules crash on them instead of skipping them.
+        // The plugin crashes on files outside a tsconfig, such as .projenrc.ts.
         files: ['src/**/*.ts', 'test/**/*.ts'],
         jsPlugins: ['oxlint-plugin-awscdk'],
-        // oxlint-plugin-awscdk's `strict` preset, spelled out: the plugin's entry point cannot be
-        // imported from this CommonJS-loaded config. strict rather than recommended because this
-        // is a published construct library, so the JSDoc and props-default rules matter as much
-        // as the construct-ID ones.
+        // The `strict` preset. Importing it fails because this config loads as CommonJS.
         rules: {
           'awscdk/construct-constructor-property': 'error',
           'awscdk/no-construct-in-interface': 'error',

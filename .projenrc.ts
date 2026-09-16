@@ -1,8 +1,7 @@
 import { awscdk, TomlFile } from 'projen';
 import { NodePackageManager, UpgradeDependenciesSchedule } from 'projen/lib/javascript';
 
-// Shared by CI (workflowNodeVersion) and local development (mise.toml). vite-plus needs
-// Node.js >= 24.11 on the 24 line.
+// vite-plus requires Node.js >= 24.11.
 const nodeVersion = '24';
 
 const project = new awscdk.AwsCdkConstructLibrary({
@@ -15,42 +14,33 @@ const project = new awscdk.AwsCdkConstructLibrary({
   license: 'Apache-2.0',
   keywords: ['aws', 'cdk', 'aws-cdk', 'bedrock', 'agentcore', 'claude-code', 'coding-agent'],
 
-  // CfnCapacityProvider — the L1 this library is built around — first shipped in
-  // aws-cdk-lib 2.268.0, so that is the floor for the peer dependency.
+  // First release with CfnCapacityProvider.
   cdkVersion: '2.268.0',
   defaultReleaseBranch: 'main',
   jsiiVersion: '~6.0.0',
-  // jsii 6 requires typescript ~6.0. projen's default (latest) pulls in TS 7, which
-  // jsii cannot compile with, so pin it explicitly.
+  // jsii 6 cannot compile with TypeScript 7, projen's default.
   typescriptVersion: '~6.0.0',
   projenrcTs: true,
   packageManager: NodePackageManager.PNPM,
   workflowNodeVersion: nodeVersion,
-  // Install exactly what pnpm-lock.yaml records. projen's default lets CI re-resolve and quietly
-  // build against dependencies nobody reviewed; a stale lockfile should fail instead.
   buildWorkflowOptions: {
     mutableInstall: false,
   },
   pnpmOptions: {
     workspaceYamlOptions: {
-      // Refuse versions published less than a day ago, so a compromised release has time to be
-      // noticed and pulled before it reaches this project, locally or in CI.
       minimumReleaseAge: 1440,
     },
   },
 
-  // Formatting, linting, type checking and tests all run through Vite+ (`vp`), configured in
-  // vite.config.ts. projen's ESLint, Prettier and Jest components are off so that each job has
-  // exactly one tool.
+  // Replaced by Vite+ (vite.config.ts).
   eslint: false,
   prettier: false,
   jest: false,
   devDeps: [
     'vite-plus',
     'oxlint-plugin-awscdk',
-    // Integration tests: test/integ.*.ts, deployed for real by `projen integ`.
     '@aws-cdk/integ-runner',
-    // Alpha modules are released in lockstep with aws-cdk-lib, so this tracks cdkVersion exactly.
+    // Must match cdkVersion.
     '@aws-cdk/integ-tests-alpha@2.268.0-alpha.0',
     'aws-cdk',
     'tsx',
@@ -60,9 +50,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     workflowOptions: {
       schedule: UpgradeDependenciesSchedule.WEEKLY,
     },
-    // These move by hand only. aws-cdk-lib is the peer floor (see cdkVersion) and
-    // integ-tests-alpha has to stay on the same release; typescript, jsii and jsii-rosetta are
-    // held on the 6.x line (see typescriptVersion).
+    // Pinned on purpose; upgrade by hand.
     exclude: ['aws-cdk-lib', '@aws-cdk/integ-tests-alpha', 'typescript', 'jsii', 'jsii-rosetta'],
   },
 
@@ -74,12 +62,10 @@ const project = new awscdk.AwsCdkConstructLibrary({
     '.idea/',
     // Scratch space for agent-generated research and drafts. Local only.
     'docs/ai-output/',
-    // Left behind by integ-runner --inspect-failures.
     'cdk-integ.out.*',
   ],
   githubOptions: {
-    // The generated Mergify rules require an approving review, which a sole maintainer
-    // cannot give, and the Mergify app is not installed, so the generated file would be inert.
+    // The Mergify app is not installed, and its rules need a review a sole maintainer cannot give.
     mergify: false,
     pullRequestLintOptions: {
       semanticTitleOptions: {
@@ -100,12 +86,10 @@ project.addTask('integ', {
   exec: 'integ-runner --no-clean --parallel-regions ap-northeast-1 --language typescript --app "tsx {filePath}"',
 });
 project.addTask('integ:destroy', {
-  description: 'Destroy every stack left behind by `integ`, which runs with --no-clean',
+  description: 'Destroy the stacks left behind by integ',
   exec: 'for d in test/integ.*.snapshot; do [ -d "$d" ] || continue; cdk destroy --app "$d" --all --force; done',
 });
 
-// Local runtimes come from mise, not from `vp env`. pnpm follows the version projen already writes
-// to packageManager and the workflows, so all three stay in step.
 new TomlFile(project, 'mise.toml', {
   obj: {
     tools: {
