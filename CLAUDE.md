@@ -22,11 +22,14 @@ Do not commit research output to `docs/` or anywhere else in the tree. If a find
 
 ## Project configuration
 
-This project is managed by [projen](https://github.com/projen/projen). **Edit `.projenrc.ts`, never the generated files.** `package.json`, `tsconfig.json`, `.github/workflows/`, `.gitignore`, `.node-version`, and others are regenerated on every synth and your edits will be lost. `.gitattributes` lists every generated file as `linguist-generated`.
+This project is managed by [projen](https://github.com/projen/projen). **Edit `.projenrc.ts`, never the generated files.** `package.json`, `tsconfig.json`, `.github/workflows/`, `.gitignore`, `mise.toml`, and others are regenerated on every synth and your edits will be lost. `.gitattributes` lists every generated file as `linguist-generated`.
 
 `vite.config.ts` is not generated; edit it directly. It configures Vite+ (`vp`), which runs formatting (Oxfmt), linting (Oxlint + oxlint-plugin-awscdk), type checking (TypeScript 7 via tsgolint) and tests (Vitest). It reads `.gitattributes` to keep formatting and linting off projen's generated files.
 
+Node.js and pnpm come from mise (`mise.toml`), not from `vp env`. Their versions are set in `.projenrc.ts`, so the workflows use the same ones.
+
 ```sh
+mise install              # install Node.js and pnpm
 pnpm install              # install dependencies
 npx projen                # synthesize generated files from .projenrc.ts
 npx projen build          # compile (jsii) -> docgen -> test -> package

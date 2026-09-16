@@ -18,7 +18,7 @@ tsconfig.tsbuildinfo
 /projenrc/tsconfig.json
 !.jsii
 /vite.config.ts
-/.node-version
+/mise.toml
 /.gitattributes
 /.projenrc.ts
 /projenrc

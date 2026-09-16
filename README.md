@@ -23,6 +23,7 @@ Those are the problems this library is meant to absorb.
 This project is managed by [projen](https://github.com/projen/projen). Project configuration lives in `.projenrc.ts`; generated files (`package.json`, `tsconfig.json`, `.github/workflows/`, and so on) are overwritten on the next synth, so edit `.projenrc.ts` instead.
 
 ```sh
+mise install              # install Node.js and pnpm
 pnpm install              # install dependencies
 npx projen                # synthesize generated files from .projenrc.ts
 npx projen build          # compile (jsii) -> docgen -> test -> package
@@ -35,8 +36,7 @@ Formatting, linting, type checking and tests run through [Vite+](https://viteplu
 
 ### Requirements
 
-- Node.js 24 (`.node-version`; picked up by `vp env`, mise, and similar version managers)
-- pnpm
+- [mise](https://mise.jdx.dev/) — `mise install` provides Node.js 24 and pnpm at the versions in `mise.toml`. That file is generated from `.projenrc.ts`, and CI uses the same versions. Use mise for these rather than `vp env`.
 - TypeScript is pinned to the 6.x line because jsii 6 requires `typescript ~6.0`; leaving projen's default in place breaks the compile. `vp check` type checks with TypeScript 7 (tsgolint) independently of that pin. See `typescriptVersion` in `.projenrc.ts`.
 
 ## License

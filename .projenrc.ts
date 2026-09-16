@@ -1,5 +1,9 @@
-import { awscdk, TextFile } from 'projen';
+import { awscdk, TomlFile } from 'projen';
 import { NodePackageManager, UpgradeDependenciesSchedule } from 'projen/lib/javascript';
+
+// Shared by CI (workflowNodeVersion) and local development (mise.toml). vite-plus needs
+// Node.js >= 24.11 on the 24 line.
+const nodeVersion = '24';
 
 const project = new awscdk.AwsCdkConstructLibrary({
   name: 'coding-agent-workstation',
@@ -21,7 +25,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
   typescriptVersion: '~6.0.0',
   projenrcTs: true,
   packageManager: NodePackageManager.PNPM,
-  workflowNodeVersion: '24',
+  workflowNodeVersion: nodeVersion,
 
   // Formatting, linting, type checking and tests all run through Vite+ (`vp`), configured in
   // vite.config.ts. projen's ESLint, Prettier and Jest components are off so that each job has
@@ -85,11 +89,18 @@ project.addTask('integ:destroy', {
   exec: 'for d in test/integ.*.snapshot; do [ -d "$d" ] || continue; cdk destroy --app "$d" --all --force; done',
 });
 
-// Read by `vp env` (and mise, nvm, fnm) to select the local Node.js; CI uses workflowNodeVersion.
-// vite-plus needs Node.js >= 24.11 on the 24 line.
-new TextFile(project, '.node-version', { lines: ['24'] });
+// Local runtimes come from mise, not from `vp env`. pnpm follows the version projen already writes
+// to packageManager and the workflows, so all three stay in step.
+new TomlFile(project, 'mise.toml', {
+  obj: {
+    tools: {
+      node: nodeVersion,
+      pnpm: project.package.pnpmVersion,
+    },
+  },
+});
 
 project.addPackageIgnore('/vite.config.ts');
-project.addPackageIgnore('/.node-version');
+project.addPackageIgnore('/mise.toml');
 
 project.synth();
