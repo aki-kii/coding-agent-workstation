@@ -1,5 +1,5 @@
-import { awscdk } from 'projen';
-import { NodePackageManager, TrailingComma } from 'projen/lib/javascript';
+import { awscdk, TextFile } from 'projen';
+import { NodePackageManager, UpgradeDependenciesSchedule } from 'projen/lib/javascript';
 
 const project = new awscdk.AwsCdkConstructLibrary({
   name: 'coding-agent-workstation',
@@ -17,29 +17,37 @@ const project = new awscdk.AwsCdkConstructLibrary({
   defaultReleaseBranch: 'main',
   jsiiVersion: '~6.0.0',
   // jsii 6 requires typescript ~6.0. projen's default (latest) pulls in TS 7, which
-  // typescript-eslint (TS <6.1 only) refuses to load, so pin it explicitly.
+  // jsii cannot compile with, so pin it explicitly.
   typescriptVersion: '~6.0.0',
   projenrcTs: true,
   packageManager: NodePackageManager.PNPM,
   workflowNodeVersion: '24',
 
-  prettier: true,
-  prettierOptions: {
-    settings: {
-      singleQuote: true,
-      trailingComma: TrailingComma.ALL,
-      semi: true,
-      printWidth: 100,
+  // Formatting, linting, type checking and tests all run through Vite+ (`vp`), configured in
+  // vite.config.ts. projen's ESLint, Prettier and Jest components are off so that each job has
+  // exactly one tool.
+  eslint: false,
+  prettier: false,
+  jest: false,
+  devDeps: [
+    'vite-plus',
+    'oxlint-plugin-awscdk',
+    // Integration tests: test/integ.*.ts, deployed for real by `projen integ`.
+    '@aws-cdk/integ-runner',
+    // Alpha modules are released in lockstep with aws-cdk-lib, so this tracks cdkVersion exactly.
+    '@aws-cdk/integ-tests-alpha@2.268.0-alpha.0',
+    'aws-cdk',
+    'tsx',
+  ],
+
+  depsUpgradeOptions: {
+    workflowOptions: {
+      schedule: UpgradeDependenciesSchedule.WEEKLY,
     },
-  },
-  eslintOptions: {
-    dirs: ['src'],
-    devdirs: ['test', 'projenrc'],
-    prettier: true,
-    ignorePatterns: ['example/**/*', 'test/*.snapshot/**/*', '*.d.ts'],
-  },
-  jestOptions: {
-    configFilePath: 'jest.config.json',
+    // These move by hand only. aws-cdk-lib is the peer floor (see cdkVersion) and
+    // integ-tests-alpha has to stay on the same release; typescript, jsii and jsii-rosetta are
+    // held on the 6.x line (see typescriptVersion).
+    exclude: ['aws-cdk-lib', '@aws-cdk/integ-tests-alpha', 'typescript', 'jsii', 'jsii-rosetta'],
   },
 
   gitignore: [
@@ -50,6 +58,8 @@ const project = new awscdk.AwsCdkConstructLibrary({
     '.idea/',
     // Scratch space for agent-generated research and drafts. Local only.
     'docs/ai-output/',
+    // Left behind by integ-runner --inspect-failures.
+    'cdk-integ.out.*',
   ],
   githubOptions: {
     pullRequestLintOptions: {
@@ -62,5 +72,24 @@ const project = new awscdk.AwsCdkConstructLibrary({
   // Enable once the distribution story (npm only vs. multi-language via jsii) is settled.
   release: false,
 });
+
+project.testTask.reset('vp test run');
+project.testTask.exec('vp check');
+
+project.addTask('integ', {
+  description: 'Deploy test/integ.*.ts to AWS and compare against the committed snapshots',
+  exec: 'integ-runner --no-clean --parallel-regions ap-northeast-1 --language typescript --app "tsx {filePath}"',
+});
+project.addTask('integ:destroy', {
+  description: 'Destroy every stack left behind by `integ`, which runs with --no-clean',
+  exec: 'for d in test/integ.*.snapshot; do [ -d "$d" ] || continue; cdk destroy --app "$d" --all --force; done',
+});
+
+// Read by `vp env` (and mise, nvm, fnm) to select the local Node.js; CI uses workflowNodeVersion.
+// vite-plus needs Node.js >= 24.11 on the 24 line.
+new TextFile(project, '.node-version', { lines: ['24'] });
+
+project.addPackageIgnore('/vite.config.ts');
+project.addPackageIgnore('/.node-version');
 
 project.synth();
