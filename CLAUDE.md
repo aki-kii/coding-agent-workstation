@@ -51,10 +51,3 @@ This library is compiled with jsii so it can be published to multiple languages.
 - Props interfaces (structs) must have all members `readonly`, and cannot hold methods or function-typed properties
 
 When in doubt, check whether an equivalent shape exists in `aws-cdk-lib` itself.
-
-## Reference repositories
-
-These are the models for how this repository presents itself — README structure, issue style, and construct API shape:
-
-- [cdklabs/deploy-time-build](https://github.com/cdklabs/deploy-time-build)
-- [go-to-k/ecr-scan-verifier](https://github.com/go-to-k/ecr-scan-verifier)
