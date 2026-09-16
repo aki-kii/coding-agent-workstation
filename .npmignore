@@ -5,7 +5,6 @@ junit.xml
 /jest.config.json
 /coverage/
 permissions-backup.acl
-/.mergify.yml
 /.prettierignore
 /.prettierrc.json
 /test/
