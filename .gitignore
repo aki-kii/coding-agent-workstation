@@ -39,7 +39,6 @@ cdk.out/
 docs/ai-output/
 cdk-integ.out.*
 !/.github/workflows/build.yml
-!/.mergify.yml
 !/.github/workflows/upgrade.yml
 !/.github/pull_request_template.md
 !/test/

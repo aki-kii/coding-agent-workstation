@@ -66,6 +66,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
     'cdk-integ.out.*',
   ],
   githubOptions: {
+    // The generated Mergify rules require an approving review, which a sole maintainer
+    // cannot give, and the Mergify app is not installed, so the generated file would be inert.
+    mergify: false,
     pullRequestLintOptions: {
       semanticTitleOptions: {
         types: ['feat', 'fix', 'chore', 'docs', 'test', 'refactor', 'ci'],
