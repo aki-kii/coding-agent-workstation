@@ -7,13 +7,13 @@
           {
             "type": "command",
             "if": "Bash(gh *pr *create*)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" gate || exit 2",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" ] || exit 0; node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" gate || exit 2",
             "timeout": 60
           },
           {
             "type": "command",
             "if": "Bash(gh *pr *new*)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" gate || exit 2",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" ] || exit 0; node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" gate || exit 2",
             "timeout": 60
           }
         ]

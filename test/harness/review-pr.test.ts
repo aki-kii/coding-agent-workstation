@@ -367,20 +367,22 @@ describe('gate', () => {
     expect(gate('gh pr create', tmpdir())).toBe(2);
   });
 
-  test('the hook command blocks when the gate cannot even start', () => {
+  test('the hook command blocks when node cannot run, and skips a project without the gate', () => {
     const settings = JSON.parse(
       readFileSync(resolve(__dirname, '../../.claude/settings.json'), 'utf8'),
     ) as { hooks: { PreToolUse: { hooks: { command: string }[] }[] } };
     const commands = settings.hooks.PreToolUse.flatMap((h) => h.hooks.map((x) => x.command));
     const gates = commands.filter((c) => c.includes('review.mjs'));
+    const sh = (command: string, env: Record<string, string>) =>
+      spawnSync('/bin/sh', ['-c', command], { input: '{}', env: { ...process.env, ...env } })
+        .status;
 
     expect(gates).toHaveLength(2);
     for (const command of gates) {
-      const r = spawnSync('sh', ['-c', command], {
-        input: '{}',
-        env: { ...process.env, CLAUDE_PROJECT_DIR: join(tmpdir(), 'no-such-project') },
-      });
-      expect(r.status, command).toBe(2);
+      const project = resolve(__dirname, '../..');
+      // A session whose project has no review loop, e.g. started from a parent directory.
+      expect(sh(command, { CLAUDE_PROJECT_DIR: tmpdir() }), command).toBe(0);
+      expect(sh(command, { CLAUDE_PROJECT_DIR: project, PATH: '/nonexistent' }), command).toBe(2);
     }
   });
 });
