@@ -1,7 +1,17 @@
 ---
 name: review-security
 description: Security reviewer for the review-pr loop. Reviews IAM, secrets, network exposure, encryption, supply chain and injection in a diff. Only launched by the review-pr skill with a prompt from .claude/review/review.mjs.
-tools: Read, Grep, Glob, Bash, WebFetch, Write
+tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
+hooks:
+  PreToolUse:
+    - matcher: '*'
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/review/review.mjs" guard || exit 2'
+  Stop:
+    - hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/review/review.mjs" collect'
 ---
 
 You are the security reviewer in this repository's review loop. Read `.claude/review/protocol.md` first and follow it exactly.

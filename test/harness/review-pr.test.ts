@@ -98,6 +98,19 @@ function finding(overrides: object = {}): object {
 
 const evidence = [{ source: 'src/a.ts:1', detail: 'shows it' }];
 
+function hook(name: string, input: object | string): { status: number; stdout: string } {
+  const r = spawnSync('node', [SCRIPT, name], {
+    cwd: repo,
+    encoding: 'utf8',
+    input: typeof input === 'string' ? input : JSON.stringify({ cwd: repo, ...input }),
+  });
+  return { status: r.status ?? 1, stdout: r.stdout };
+}
+
+function step(): { step: string; reviewers?: { reviewer: string }[] } {
+  return ok('step') as unknown as { step: string; reviewers?: { reviewer: string }[] };
+}
+
 function gate(command = 'gh pr create --fill', cwd = repo): number {
   const input = JSON.stringify({ cwd, tool_input: { command } });
   return spawnSync('node', [SCRIPT, 'gate'], { cwd, input }).status ?? 1;
@@ -354,20 +367,22 @@ describe('gate', () => {
     expect(gate('gh pr create', tmpdir())).toBe(2);
   });
 
-  test('the hook command blocks when the gate cannot even start', () => {
+  test('the hook command blocks when node cannot run, and skips a project without the gate', () => {
     const settings = JSON.parse(
       readFileSync(resolve(__dirname, '../../.claude/settings.json'), 'utf8'),
     ) as { hooks: { PreToolUse: { hooks: { command: string }[] }[] } };
     const commands = settings.hooks.PreToolUse.flatMap((h) => h.hooks.map((x) => x.command));
     const gates = commands.filter((c) => c.includes('review.mjs'));
+    const sh = (command: string, env: Record<string, string>) =>
+      spawnSync('/bin/sh', ['-c', command], { input: '{}', env: { ...process.env, ...env } })
+        .status;
 
     expect(gates).toHaveLength(2);
     for (const command of gates) {
-      const r = spawnSync('sh', ['-c', command], {
-        input: '{}',
-        env: { ...process.env, CLAUDE_PROJECT_DIR: join(tmpdir(), 'no-such-project') },
-      });
-      expect(r.status, command).toBe(2);
+      const project = resolve(__dirname, '../..');
+      // A session whose project has no review loop, e.g. started from a parent directory.
+      expect(sh(command, { CLAUDE_PROJECT_DIR: tmpdir() }), command).toBe(0);
+      expect(sh(command, { CLAUDE_PROJECT_DIR: project, PATH: '/nonexistent' }), command).toBe(2);
     }
   });
 });
@@ -490,5 +505,204 @@ describe('validation', () => {
     expect(r.stderr).toMatch(/general-R1-1: a dispute needs evidence/);
     expect(r.stderr).toMatch(/no response for open finding general-R1-2/);
     expect(r.stderr).toMatch(/duplicate response for general-R1-1/);
+  });
+});
+
+describe('reviewer guard', () => {
+  const bash = (command: string) =>
+    hook('guard', { agent_type: 'review-general', tool_name: 'Bash', tool_input: { command } })
+      .status;
+
+  test('allows read-only tools and the fixed read-only commands', () => {
+    for (const tool of ['Read', 'Grep', 'Glob', 'WebFetch']) {
+      expect(hook('guard', { tool_name: tool, tool_input: {} }).status, tool).toBe(0);
+    }
+    for (const command of [
+      'git diff HEAD~1 -- src',
+      "git log --format='%h %s' -3",
+      'git log --format="%h %s" HEAD~3..HEAD',
+      "grep -rn 'foo(bar)*[0-9]' src",
+      "rg -n 'a|b$' .claude",
+      'CI=1 pnpm exec vp test run test/harness',
+      'mise exec -- pnpm exec vp check src',
+    ]) {
+      expect(bash(command), command).toBe(0);
+    }
+  });
+
+  test('refuses writing tools, other commands, shell syntax and writing flags', () => {
+    for (const tool of ['Write', 'Edit', 'NotebookEdit', 'Agent']) {
+      expect(hook('guard', { tool_name: tool, tool_input: {} }).status, tool).toBe(2);
+    }
+    for (const command of [
+      'touch x',
+      'git diff > x',
+      'git diff --output=x',
+      'git log | head',
+      'git status; rm -rf src',
+      'git show $(rm x)',
+      'git diff\nrm x',
+      'pnpm exec vp test run',
+      'CI=1 pnpm exec vp test run -u',
+      'pnpm exec vp check --fix',
+      'git grep -Orm -e .',
+      'git diff -Oorder',
+      'git diff --out=x',
+      "git diff '--output=x'",
+      'git log --ext-diff',
+      'git show --text=x',
+      'CI=1 pnpm exec vp test run -Ru',
+      'pnpm exec vp check --fi',
+      'CI=1 pnpm exec vp test run --reporter=json --outputFile=.claude/settings.json',
+      'CI=1 pnpm exec vp test run test "--coverage.reportsDirectory=src"',
+      'pnpm exec vp check -c other.config.ts',
+      'git diff {--output=src/a.ts,HEAD}',
+      'git diff origin/main *',
+      'git diff =(touch pwned)',
+      "git log *(e:'rm -rf src':)",
+      'git log ~/x',
+      'git diff "$(touch x)"',
+      "git diff 'unterminated",
+      'rg --pre=sh x',
+      'rg -nz x',
+      'find . -delete',
+    ]) {
+      expect(bash(command), command).toBe(2);
+    }
+    expect(hook('guard', 'not json').status).toBe(2);
+  });
+});
+
+describe('collect', () => {
+  const collect = (message: string, agent = 'review-general') =>
+    hook('collect', {
+      agent_type: agent,
+      agent_id: 'first-launch',
+      last_assistant_message: message,
+    });
+
+  test('saves a valid final message, fenced or not', () => {
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+    const output = { replies: [], findings: [finding({ file: 'README.md' })] };
+
+    const r = collect(`Done.\n\n\`\`\`json\n${JSON.stringify(output)}\n\`\`\``);
+
+    expect(r).toEqual({ status: 0, stdout: '' });
+    expect(JSON.parse(readFileSync(roundFile(1, 'general.json'), 'utf8'))).toEqual(output);
+    expect(ok('judge').result).toBe('FIX');
+  });
+
+  test('sends an invalid message back, gives up after 3 attempts, and resets for a relaunch', () => {
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+
+    for (let i = 0; i < 3; i++) {
+      const r = collect('{"replies": [], "findings": [{"file": "README.md"}]}');
+      expect(JSON.parse(r.stdout)).toMatchObject({ decision: 'block' });
+    }
+    expect(collect('no json at all').stdout).toBe('');
+    expect(run('judge').stderr).toMatch(/general: missing/);
+
+    const relaunched = hook('collect', {
+      agent_type: 'review-general',
+      agent_id: 'second-launch',
+      last_assistant_message: 'no json at all',
+    });
+    expect(JSON.parse(relaunched.stdout)).toMatchObject({ decision: 'block' });
+  });
+
+  test('ignores agents outside the current round', () => {
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+
+    expect(collect('whatever', 'review-cdk')).toEqual({ status: 0, stdout: '' });
+    expect(collect('whatever', 'Explore')).toEqual({ status: 0, stdout: '' });
+  });
+});
+
+describe('step', () => {
+  test('walks the whole loop', () => {
+    expect(step().step).toBe('start');
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+
+    expect(step()).toMatchObject({ step: 'run-reviewers', reviewers: [{ reviewer: 'general' }] });
+    review(1, 'general', { replies: [], findings: [finding({ file: 'README.md' })] });
+    expect(step().step).toBe('judge');
+    ok('judge');
+    expect(step().step).toBe('respond');
+    respond(1, [{ id: 'general-R1-1', action: 'fix' }]);
+    expect(step().step).toBe('next');
+    write('README.md', 'fixed\n');
+    ok('next');
+    review(2, 'general', {
+      replies: [{ id: 'general-R1-1', verdict: 'withdraw', comment: 'ok' }],
+      findings: [],
+    });
+    ok('judge');
+
+    expect(step().step).toBe('push');
+    git('commit', '-q', '-am', 'change');
+    git('push', '-q', 'origin', 'feature');
+    expect(step().step).toBe('open-pr');
+    write('README.md', 'changed again\n');
+    expect(step().step).toBe('start');
+  });
+
+  test('reports an abort', () => {
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+    review(1, 'general', { replies: [], findings: [finding({ file: 'README.md' })] });
+    ok('judge');
+    respond(1, [{ id: 'general-R1-1', action: 'fix' }]);
+    ok('next');
+    review(2, 'general', {
+      replies: [{ id: 'general-R1-1', verdict: 'withdraw', comment: 'ok' }],
+      findings: [finding({ file: 'README.md' })],
+    });
+    ok('judge');
+
+    expect(step().step).toBe('report-abort');
+  });
+});
+
+describe('stop-guard', () => {
+  const stop = (input: object = {}) =>
+    hook('stop-guard', { prompt_id: 'prompt-1', background_tasks: [], ...input });
+
+  test('stays out of the way without a review in progress', () => {
+    expect(stop().stdout).toBe('');
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+    review(1, 'general', { replies: [], findings: [] });
+    ok('judge');
+    expect(stop().stdout).toBe('');
+  });
+
+  test('blocks while a step is due, but not while reviewers are running or for subagents', () => {
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+
+    const running = [{ type: 'subagent', status: 'running', agent_type: 'review-general' }];
+    expect(stop({ background_tasks: running }).stdout).toBe('');
+    expect(hook('stop-guard', {}).stdout).toBe('');
+    expect(stop({ agent_type: 'review-general' }).stdout).toBe('');
+    expect(JSON.parse(stop().stdout)).toMatchObject({ decision: 'block' });
+    expect(stop().stdout).toContain('run-reviewers');
+  });
+
+  test('lets the turn end after 3 blocks for the same step', () => {
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+    review(1, 'general', { replies: [], findings: [finding({ file: 'README.md' })] });
+
+    for (let i = 0; i < 3; i++) expect(stop().stdout).toContain('judge');
+    expect(stop().stdout).toBe('');
+    // A new user prompt gets its own allowance.
+    expect(stop({ prompt_id: 'prompt-2' }).stdout).toContain('judge');
+
+    ok('judge');
+    expect(stop().stdout).toContain('respond');
   });
 });
