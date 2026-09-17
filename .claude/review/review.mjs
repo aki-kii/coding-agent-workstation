@@ -1,13 +1,23 @@
 // Review loop controller. The agents review and fix; every loop decision is made here.
-//   start [--base <ref>]          open round 1 and print the reviewer plan
+//   start [--base <ref>] [--restart]
+//                                 open round 1 and print the reviewer plan; --restart discards
+//                                 a review that is not done
 //   add <reviewer> --reason <why> add a reviewer to the current round
-//   judge                         read the reviewers' output, then print DONE, FIX or ABORT
+//   judge [--quiet]               read the reviewers' output, then print DONE, FIX or ABORT
 //   next                          read the responses to open findings and open the next round
 //   status                        print the state
 //   summary                       print the review record for the pull request body
 //   gate                          PreToolUse hook: block `gh pr create` until the review is done
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -32,7 +42,7 @@ export const REVIEWERS = {
       'synth',
       'cost',
     ],
-    paths: [/^src\//, /^test\//, /^\.projenrc\.ts$/, /^cdk\.json$/],
+    paths: [/^src\//, /^test\/(?!harness\/)/, /^\.projenrc\.ts$/, /^cdk\.json$/],
   },
   security: {
     categories: ['iam', 'secrets', 'network', 'encryption', 'supply-chain', 'injection'],
@@ -57,23 +67,42 @@ export const REVIEWERS = {
   },
   script: {
     categories: ['shell-safety', 'hook-contract', 'portability', 'error-handling', 'performance'],
-    paths: [/^\.claude\/(hooks|review)\//, /\.(mjs|cjs|sh|bash)$/, /^\.github\/workflows\//],
+    paths: [
+      /^\.claude\/(hooks|review)\//,
+      /^\.claude\/settings(\.local)?\.json$/,
+      /\.(mjs|cjs|sh|bash)$/,
+      /^\.github\/workflows\//,
+    ],
   },
 };
 
 // Too large or generated to review line by line; listed by name only.
 const DIFF_EXCLUDE = ['pnpm-lock.yaml', 'API.md'];
+// Inside the working tree so worktree-isolated agents can write their output. Kept out of snapshots.
+export const STATE_DIR = '.claude/review/.state';
+// `gh pr create` in command position: start of a line or after ; & | ( or $(.
+export const PR_CREATE = /(^|[;&|(]|\$\()\s*gh\s+pr\s+create\b/m;
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+class ReviewError extends Error {}
+
+// Compare real paths: a symlinked project directory must not turn the script into a no-op.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main(process.argv.slice(2));
 }
 
 function main(argv) {
   const [command, ...args] = argv;
-  const commands = { start, add, judge, next, status, summary, gate };
-  if (!commands[command]) fail(`unknown command: ${command ?? '(none)'}`);
+  const commands = { start, add, judge, next, status, summary };
   // gate runs on every Bash call, so it opens the repository only when it has to.
-  commands[command](command === 'gate' ? null : openRepo(process.cwd()), args);
+  if (command === 'gate') return gate();
+  try {
+    if (!commands[command]) fail(`unknown command: ${command ?? '(none)'}`);
+    commands[command](openRepo(process.cwd()), args);
+  } catch (error) {
+    if (!(error instanceof ReviewError)) throw error;
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -84,10 +113,10 @@ function start(repo, args) {
   if (state && state.status !== 'done' && !args.includes('--restart')) {
     fail(`a review is already ${state.status}; pass --restart to discard it`);
   }
-  rmSync(repo.dir, { recursive: true, force: true });
   const base = option(args, '--base') ?? repo.git(['merge-base', 'HEAD', 'origin/main']).trim();
   const tree = repo.snapshot();
   const files = repo.changedFiles(base, tree);
+  rmSync(repo.dir, { recursive: true, force: true });
   const fresh = {
     base,
     status: 'reviewing',
@@ -178,11 +207,17 @@ function next(repo) {
 function status(repo) {
   const state = repo.load();
   if (!state) fail('no review has been started');
+  const round = state.rounds.at(-1);
   print({
     status: state.status,
-    round: state.rounds.at(-1)?.n ?? 0,
+    round: round?.n ?? 0,
     abort: state.abort,
     openFindings: openFindings(state),
+    // Lets an interrupted session re-launch the reviewers of the current round.
+    reviewers:
+      state.status === 'reviewing'
+        ? Object.keys(round.reviewers).map((name) => reviewerPlan(repo, state, round, name))
+        : undefined,
   });
 }
 
@@ -193,18 +228,23 @@ function summary(repo) {
 }
 
 function gate() {
-  const input = JSON.parse(readFileSync(0, 'utf8'));
-  const command = input.tool_input?.command ?? '';
-  if (!/\bgh\s+pr\s+create\b/.test(command)) return;
-  const repo = openRepo(input.cwd ?? process.cwd());
-  const state = repo.load();
-  const why = !state
-    ? 'no review has been run'
-    : state.status !== 'done'
-      ? `the review is ${state.status}`
-      : state.passedTree !== repo.snapshot()
-        ? 'files changed after the review passed'
-        : null;
+  let why;
+  try {
+    const input = JSON.parse(readFileSync(0, 'utf8'));
+    if (!PR_CREATE.test(input.tool_input?.command ?? '')) return;
+    const repo = openRepo(input.cwd ?? process.cwd());
+    const state = repo.load();
+    why = !state
+      ? 'no review has been run'
+      : state.status !== 'done'
+        ? `the review is ${state.status}`
+        : state.passedTree !== repo.snapshot()
+          ? 'files changed after the review passed'
+          : null;
+  } catch (error) {
+    // Fail closed: only exit 2 blocks the tool call.
+    why = `the review state could not be checked (${error.message})`;
+  }
   if (!why) return;
   process.stderr.write(`Pull request blocked: ${why}. Run the review-pr skill first.\n`);
   process.exit(2);
@@ -214,19 +254,17 @@ function gate() {
 // Rounds
 
 function openRound(repo, state, { from, tree, files, carried }) {
+  // The round limit is enforced in applyJudgement, before a round can be opened.
   const n = state.rounds.length + 1;
-  if (n > MAX_ROUNDS) {
-    abort(state, 'round-limit', `review would need round ${n}; the limit is ${MAX_ROUNDS}`);
-    repo.save(state);
-    print({ result: 'ABORT', abort: state.abort, openFindings: openFindings(state) });
-    return;
-  }
   const diff = repo.diff(from, tree, files);
   const reviewers = selectReviewers(files, diff);
-  // Reviewers with carried findings must answer them, even if none of their files changed.
+  // Reviewers with carried findings must answer them and see any change to those files.
   for (const id of carried) {
-    const name = state.findings[id].reviewer;
-    reviewers[name] ??= { selectedBy: 'carried', files: [] };
+    const finding = state.findings[id];
+    const reviewer = (reviewers[finding.reviewer] ??= { selectedBy: 'carried', files: [] });
+    if (files.includes(finding.file) && !reviewer.files.includes(finding.file)) {
+      reviewer.files.push(finding.file);
+    }
   }
   const round = { n, from, tree, files, reviewers, carried };
   state.rounds.push(round);
@@ -546,14 +584,14 @@ export function openRepo(cwd) {
       maxBuffer: 64 * 1024 * 1024,
       ...options,
     });
-    if (r.status !== 0) fail(`git ${args.join(' ')} failed:\n${r.stderr}`);
+    if (r.error || r.status !== 0) fail(`git ${args.join(' ')} failed:\n${r.stderr ?? r.error}`);
     return r.stdout;
   };
   const root = git(['rev-parse', '--show-toplevel']).trim();
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'])
     .trim()
     .replace(/[^\w.-]+/g, '-');
-  const dir = join(resolve(cwd, git(['rev-parse', '--git-dir']).trim()), 'claude-review', branch);
+  const dir = join(root, STATE_DIR, branch);
   const statePath = join(dir, 'state.json');
 
   return {
@@ -570,14 +608,19 @@ export function openRepo(cwd) {
       const index = join(tmpdir(), `claude-review-index-${process.pid}`);
       const env = { ...process.env, GIT_INDEX_FILE: index };
       try {
-        git(['read-tree', 'HEAD'], { env, cwd: root });
-        git(['add', '-A'], { env, cwd: root });
+        // Start from the real index so its stat cache spares rehashing unchanged files.
+        const real = resolve(root, git(['rev-parse', '--git-path', 'index'], { cwd: root }).trim());
+        if (existsSync(real)) copyFileSync(real, index);
+        else git(['read-tree', 'HEAD'], { env, cwd: root });
+        git(['add', '-A', '--', '.', `:(exclude)${STATE_DIR}`], { env, cwd: root });
         return git(['write-tree'], { env, cwd: root }).trim();
       } finally {
         rmSync(index, { force: true });
       }
     },
-    changedFiles: (from, to) => git(['diff', '--name-only', from, to]).split('\n').filter(Boolean),
+    // -z keeps non-ASCII paths unquoted.
+    changedFiles: (from, to) =>
+      git(['diff', '--name-only', '-z', from, to, '--']).split('\0').filter(Boolean),
     diff: (from, to, files) => {
       const shown = files.filter((f) => !DIFF_EXCLUDE.includes(f));
       const hidden = files.filter((f) => DIFF_EXCLUDE.includes(f));
@@ -627,6 +670,5 @@ function print(value) {
 }
 
 function fail(message) {
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
+  throw new ReviewError(message);
 }

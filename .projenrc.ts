@@ -69,6 +69,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     'docs/ai-output/',
     'cdk-integ.out.*',
     '.claude/worktrees/',
+    '.claude/review/.state/',
   ],
   githubOptions: {
     // The Mergify app is not installed, and its rules need a review a sole maintainer cannot give.

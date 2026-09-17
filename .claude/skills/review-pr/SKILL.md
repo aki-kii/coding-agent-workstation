@@ -17,7 +17,9 @@ Make sure the Stop hook's verification passes first; reviewers should not spend 
 node .claude/review/review.mjs start
 ```
 
-Pass `--base <ref>` if the branch does not start from `origin/main`. If a previous review for this branch was aborted, `start` refuses; ask the user before passing `--restart`.
+Pass `--base <ref>` if the branch does not start from `origin/main`. If this branch already has a review that is not done, `start` refuses. When it is `reviewing` or `fixing` (an earlier session stopped midway), continue it from step 2 or 4 according to `node .claude/review/review.mjs status`. When it is `aborted`, ask the user; pass `--restart` only if they tell you to.
+
+Review state lives in `.claude/review/.state/<branch>/`, which git ignores. Never edit it by hand.
 
 `result: "DONE"` here means there is nothing to review. Go to step 5.
 

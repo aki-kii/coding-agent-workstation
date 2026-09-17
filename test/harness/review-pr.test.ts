@@ -62,8 +62,7 @@ function ok(...args: string[]): Result {
 }
 
 function roundFile(round: number, name: string): string {
-  const gitDir = git('rev-parse', '--absolute-git-dir').trim();
-  return join(gitDir, 'claude-review', 'feature', `round-${round}`, name);
+  return join(repo, '.claude/review/.state/feature', `round-${round}`, name);
 }
 
 function review(round: number, reviewer: string, output: object): void {
@@ -89,9 +88,9 @@ function finding(overrides: object = {}): object {
 
 const evidence = [{ source: 'src/a.ts:1', detail: 'shows it' }];
 
-function gate(): number {
-  const input = JSON.stringify({ cwd: repo, tool_input: { command: 'gh pr create --fill' } });
-  return spawnSync('node', [SCRIPT, 'gate'], { cwd: repo, input }).status ?? 1;
+function gate(command = 'gh pr create --fill', cwd = repo): number {
+  const input = JSON.stringify({ cwd, tool_input: { command } });
+  return spawnSync('node', [SCRIPT, 'gate'], { cwd, input }).status ?? 1;
 }
 
 describe('reviewer selection', () => {
@@ -310,6 +309,61 @@ describe('stopping', () => {
     ]);
 
     expect(ok('next').result).toBe('REVIEW');
+  });
+});
+
+describe('gate', () => {
+  test('ignores commands that do not create a pull request, even outside a repository', () => {
+    expect(gate('ls -la', tmpdir())).toBe(0);
+    expect(gate('git commit -m "block gh pr create until review"')).toBe(0);
+    expect(gate("grep -rn 'gh pr create' .claude")).toBe(0);
+  });
+
+  test('blocks pull request creation in command position', () => {
+    expect(gate('git push && gh pr create --fill')).toBe(2);
+    expect(gate('cd sub; gh pr create')).toBe(2);
+  });
+
+  test('fails closed when the state cannot be read', () => {
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+    writeFileSync(join(repo, '.claude/review/.state/feature/state.json'), '{');
+
+    expect(gate()).toBe(2);
+    expect(gate('gh pr create', tmpdir())).toBe(2);
+  });
+});
+
+describe('diffs', () => {
+  test('keeps non-ASCII paths and leaves the state directory out of the snapshot', () => {
+    write('docs/日本語.md', 'x\n');
+
+    const plan = ok('start', '--base', 'main');
+
+    expect(plan.reviewers).toEqual([
+      expect.objectContaining({ reviewer: 'general', files: ['docs/日本語.md'] }),
+    ]);
+  });
+
+  test('a reviewer carried only for its finding still sees the fix to that file', () => {
+    write('src/a.ts', "new iam.Role(this, 'Role');\n");
+    ok('start', '--base', 'main');
+    review(1, 'general', { replies: [], findings: [] });
+    review(1, 'cdk', { replies: [], findings: [] });
+    review(1, 'security', {
+      replies: [],
+      findings: [finding({ category: 'iam', severity: 'high', confidence: 'confirmed' })],
+    });
+    ok('judge');
+    respond(1, [{ id: 'security-R1-1', action: 'fix' }]);
+    // The fixed line no longer matches any security rule.
+    write('src/a.ts', 'narrowed\n');
+
+    const round2 = ok('next');
+
+    expect(round2.reviewers).toContainEqual(
+      expect.objectContaining({ reviewer: 'security', files: ['src/a.ts'] }),
+    );
   });
 });
 
