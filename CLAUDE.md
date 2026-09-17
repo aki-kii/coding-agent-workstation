@@ -62,6 +62,11 @@ Open pull requests through the `review-pr` skill. It runs reviewer subagents (`g
 
 The hook's `if` rules let Claude Code's own command parser decide which Bash calls reach the gate, so chained commands, `VAR=value` prefixes and wrappers such as `timeout` are covered. It is a guardrail against skipping the review by accident, not a security boundary: `/usr/bin/gh pr create`, `bash -c '...'` and `gh api` calls that create a pull request are not caught.
 
+Hooks also keep the loop on its rails:
+
+- `review.mjs step` names the one thing to do next, and a Stop hook keeps the turn going while a step you can do right now is due (it lets the turn end after 3 blocks for the same step).
+- Reviewers are read-only. Their frontmatter hooks refuse every tool that writes and allow only a fixed list of read-only Bash commands; the `tools` list alone does not restrict Bash. A reviewer returns its review as its final message, and a SubagentStop hook validates and saves it, sending it back to the reviewer when it is invalid.
+
 - Only findings at `medium` severity or above with `likely` confidence or above have to be fixed or disputed.
 - A dispute needs evidence the reviewer can check. Only the reviewer can withdraw a finding.
 - The loop aborts and hands the decision to you after 3 rounds, when the same file, reviewer and category come back in consecutive rounds, or when a maintained finding is disputed twice for the same reason. Do not restart an aborted review on your own.

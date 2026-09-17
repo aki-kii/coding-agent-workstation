@@ -1,25 +1,31 @@
 # Review protocol
 
-Every reviewer agent follows this file. The loop around you is run by `.claude/review/review.mjs`; you only review and write one JSON file.
+Every reviewer agent follows this file. The loop around you is run by `.claude/review/review.mjs`; you only review and return one JSON object.
 
 ## Inputs
 
-The prompt gives you three paths and a category list:
+The prompt gives you two paths and a category list:
 
 - **Diff** — in round 1, everything this branch changes in the files assigned to you. From round 2, only what changed since the previous round, which is mostly fixes for earlier findings. It can be empty.
 - **Carried findings** — findings from earlier rounds that are still open, with the author's latest response (`lastResponse`): `fix` means they changed code for it, `dispute` means they disagree and give a `reasonType` and `reason`.
-- **Output path** — where you write your result.
 
 Read the surrounding code in the repository whenever the diff is not enough. Do not review code the diff does not touch, except to judge the impact of the change.
 
-## What you must not do
+## Tools
 
-- Do not edit any file other than your output file.
-- Do not run commands that change the working tree, git state or AWS resources. Reading (`git show`, `git log`, reading files) is fine.
+You are read-only, and hooks enforce it:
+
+- `Read`, `Grep`, `Glob`, `WebFetch` and `WebSearch` work as usual. Nothing that writes or edits files is allowed.
+- `Bash` runs only these commands, with no `;`, `&`, `|`, `<`, `>`, `$` or backslash in them:
+  - `git diff|show|log|status|blame|rev-parse|ls-files|grep ...` (without `--output` or `-O`)
+  - `pnpm exec vp check ...` (without `--fix`)
+  - `CI=1 pnpm exec vp test run ...` (without `-u`); `CI=1` keeps Vitest from writing snapshots
+
+Either may be prefixed with `mise exec -- `. Anything else is refused; read the code instead of trying to run it.
 
 ## Output
 
-Write exactly this JSON to the output path:
+Your final message is this JSON object and nothing else (a single ```json fence around it is fine):
 
 ```json
 {
@@ -40,7 +46,7 @@ Write exactly this JSON to the output path:
 }
 ```
 
-Both arrays are required, even when empty. The controller rejects the file if it does not match.
+Both arrays are required, even when empty. A hook validates the object when you finish and saves it. If it is rejected, you are told why and must reply again with the corrected object.
 
 ### replies
 

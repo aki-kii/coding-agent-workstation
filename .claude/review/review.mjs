@@ -6,8 +6,13 @@
 //   judge [--quiet]               read the reviewers' output, then print DONE, FIX or ABORT
 //   next                          read the responses to open findings and open the next round
 //   status                        print the state
+//   step                          print the one thing to do next
 //   summary                       print the review record for the pull request body
-//   gate                          PreToolUse hook: block `gh pr create` until the review is done
+// Hooks:
+//   gate                          PreToolUse (main): block `gh pr create` until the review is done
+//   stop-guard                    Stop (main): keep the turn going while a review step is due
+//   guard                         PreToolUse (reviewers): allow read-only tools and commands only
+//   collect                       SubagentStop (reviewers): validate and save the final message
 import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
@@ -88,6 +93,35 @@ export function mentionsPullRequestCreation(command) {
   return /\bgh\b/.test(command) && /\bpr\b[\s\S]*\b(create|new)\b/.test(command);
 }
 
+// Reviewer Bash calls: a fixed set of read-only commands, with no shell syntax to chain,
+// redirect or expand, and no flags that write.
+const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
+const READ_ONLY_COMMANDS = [
+  /^git (diff|show|log|status|blame|rev-parse|ls-files|grep)( |$)/,
+  /^(mise exec -- )?pnpm exec vp check( |$)/,
+  // CI=1 stops Vitest from writing snapshots for new tests.
+  /^CI=1 (mise exec -- )?pnpm exec vp test run( |$)/,
+];
+const SHELL_SYNTAX = /[;&|<>`$\\\n]/;
+const WRITING_FLAGS = /(^| )(--output|--fix|-u|--update|-O|--open-files-in-pager)(=| |$)/;
+export const READ_ONLY_HELP = [
+  'git diff|show|log|status|blame|rev-parse|ls-files|grep ...',
+  '[mise exec -- ]pnpm exec vp check ...',
+  'CI=1 [mise exec -- ]pnpm exec vp test run ...',
+].join('; ');
+
+export function isReadOnlyCommand(command) {
+  const c = command.trim();
+  return (
+    !SHELL_SYNTAX.test(c) && !WRITING_FLAGS.test(c) && READ_ONLY_COMMANDS.some((p) => p.test(c))
+  );
+}
+
+// A reviewer whose final message keeps failing validation is let go; judge then reports it.
+const MAX_COLLECT_ATTEMPTS = 3;
+// Consecutive Stop blocks for the same step before the guard lets the turn end.
+const MAX_STOP_BLOCKS = 3;
+
 class ReviewError extends Error {}
 
 // Compare real paths: a symlinked project directory must not turn the script into a no-op.
@@ -97,9 +131,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
 
 function main(argv) {
   const [command, ...args] = argv;
-  const commands = { start, add, judge, next, status, summary };
-  // gate runs on every Bash call, so it opens the repository only when it has to.
-  if (command === 'gate') return gate();
+  const commands = { start, add, judge, next, status, step, summary };
+  const hooks = { gate, 'stop-guard': stopGuard, guard, collect };
+  // Hooks read their input first and open the repository only when they have to.
+  if (hooks[command]) return hooks[command]();
   try {
     if (!commands[command]) fail(`unknown command: ${command ?? '(none)'}`);
     commands[command](openRepo(process.cwd()), args);
@@ -231,6 +266,10 @@ function status(repo) {
   });
 }
 
+function step(repo) {
+  print(nextStep(repo, repo.load()));
+}
+
 function summary(repo) {
   const state = repo.load();
   if (!state) fail('no review has been started');
@@ -264,6 +303,158 @@ function gate() {
   process.stderr.write(`Pull request blocked: ${why}. Run the review-pr skill first.\n`);
   // exitCode rather than exit() so the reason is not cut off on a pipe.
   process.exitCode = 2;
+}
+
+function stopGuard() {
+  let input;
+  try {
+    input = JSON.parse(readFileSync(0, 'utf8'));
+  } catch {
+    return;
+  }
+  // Not a gate: any failure lets the turn end.
+  try {
+    if (input.agent_type) return;
+    const repo = openRepo(input.cwd ?? process.cwd());
+    const state = repo.load();
+    if (state?.status !== 'reviewing' && state?.status !== 'fixing') return;
+    const due = nextStep(repo, state);
+    const running = !Array.isArray(input.background_tasks)
+      ? true
+      : input.background_tasks.some(
+          (t) => t.status === 'running' && (t.agent_type ?? '').startsWith('review-'),
+        );
+    const actionable =
+      ['judge', 'respond', 'next'].includes(due.step) || (due.step === 'run-reviewers' && !running);
+    const counterPath = join(repo.dir, 'stop-guard.json');
+    if (!actionable) {
+      rmSync(counterPath, { force: true });
+      return;
+    }
+    const key = `${state.rounds.length}:${due.step}`;
+    const previous = existsSync(counterPath) ? JSON.parse(readFileSync(counterPath, 'utf8')) : {};
+    const count = previous.key === key ? previous.count + 1 : 1;
+    if (count > MAX_STOP_BLOCKS) return;
+    writeFileSync(counterPath, JSON.stringify({ key, count }));
+    print({
+      decision: 'block',
+      reason: `The review is not finished. Do this next, as the review-pr skill describes:\n${JSON.stringify(due, null, 2)}`,
+    });
+  } catch (error) {
+    process.stderr.write(`review stop-guard: ${error.message}\n`);
+  }
+}
+
+function guard() {
+  let why = null;
+  try {
+    const input = JSON.parse(readFileSync(0, 'utf8'));
+    const tool = input.tool_name;
+    if (tool === 'Bash') {
+      if (!isReadOnlyCommand(input.tool_input?.command ?? '')) {
+        why = `reviewers may run only these commands, with no ; & | < > $ or backslash: ${READ_ONLY_HELP}`;
+      }
+    } else if (!READ_ONLY_TOOLS.includes(tool)) {
+      why = `reviewers are read-only and cannot use ${tool}. Return your review as your final message.`;
+    }
+  } catch (error) {
+    why = `the reviewer guard could not read its input (${error.message})`;
+  }
+  if (!why) return;
+  process.stderr.write(`Blocked: ${why}\n`);
+  process.exitCode = 2;
+}
+
+function collect() {
+  try {
+    const input = JSON.parse(readFileSync(0, 'utf8'));
+    const name = (input.agent_type ?? '').replace(/^review-/, '');
+    if (!REVIEWERS[name]) return;
+    const repo = openRepo(input.cwd ?? process.cwd());
+    const state = repo.load();
+    if (state?.status !== 'reviewing') return;
+    const round = state.rounds.at(-1);
+    if (!round.reviewers[name]) return;
+
+    let output;
+    let errors;
+    try {
+      output = parseReply(input.last_assistant_message ?? '');
+      errors = validateOutput(state, round, name, output);
+    } catch (error) {
+      errors = [`${name}: the final message is not a JSON object (${error.message})`];
+    }
+    const attemptsPath = join(roundDir(repo, round.n), `${name}.attempts`);
+    if (errors.length === 0) {
+      writeFileSync(outputPath(repo, round.n, name), JSON.stringify(output, null, 2));
+      rmSync(attemptsPath, { force: true });
+      return;
+    }
+    const attempts = existsSync(attemptsPath) ? Number(readFileSync(attemptsPath, 'utf8')) : 0;
+    if (attempts >= MAX_COLLECT_ATTEMPTS) return;
+    writeFileSync(attemptsPath, String(attempts + 1));
+    print({
+      decision: 'block',
+      reason: `Your review was rejected:\n${errors.join('\n')}\nReply again with only the corrected JSON object.`,
+    });
+  } catch (error) {
+    // judge reports the reviewer's output as missing.
+    process.stderr.write(`review collect: ${error.message}\n`);
+  }
+}
+
+export function parseReply(text) {
+  const fenced = text.match(/```(?:json)?[ \t]*\n([\s\S]*?)\n```/);
+  return JSON.parse((fenced ? fenced[1] : text).trim());
+}
+
+export function nextStep(repo, state) {
+  const run = (command) => `node .claude/review/review.mjs ${command}`;
+  if (!state) return { step: 'start', do: run('start') };
+  const round = state.rounds.at(-1);
+  switch (state.status) {
+    case 'reviewing': {
+      const missing = Object.keys(round.reviewers).filter(
+        (name) => !existsSync(outputPath(repo, round.n, name)),
+      );
+      if (missing.length === 0) return { step: 'judge', do: run('judge') };
+      return {
+        step: 'run-reviewers',
+        do: 'Launch each of these reviewers that is not already running, with its prompt unchanged, then wait for them.',
+        reviewers: missing.map((name) => reviewerPlan(repo, state, round, name)),
+      };
+    }
+    case 'fixing':
+      return existsSync(responsesPath(repo, round.n))
+        ? { step: 'next', do: run('next') }
+        : {
+            step: 'respond',
+            do: `Fix or dispute every open finding, write ${responsesPath(repo, round.n)}, then run: ${run('next')}`,
+            openFindings: openFindings(state),
+          };
+    case 'aborted':
+      return {
+        step: 'report-abort',
+        do: 'Stop and report the abort to the user. Do not restart the review.',
+        abort: state.abort,
+      };
+    default: {
+      const tree = repo.snapshot();
+      if (tree !== state.passedTree) {
+        return { step: 'start', do: run('start'), why: 'files changed after the review passed' };
+      }
+      if (
+        repo.treeOf('HEAD') !== tree ||
+        repo.treeOf(`refs/remotes/origin/${repo.branch}`) !== tree
+      ) {
+        return { step: 'push', do: 'Commit everything, then run: git push -u origin HEAD' };
+      }
+      return {
+        step: 'open-pr',
+        do: `Put the output of \`${run('summary')}\` in the body, then run gh pr create on its own.`,
+      };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -343,7 +534,7 @@ function reviewerPlan(repo, state, round, name) {
         ? `Diff to review (base ${state.base.slice(0, 12)}): ${diffPath(repo, round.n, name)}`
         : `Diff of the fixes since round ${round.n - 1}: ${diffPath(repo, round.n, name)}`,
       `Findings carried from earlier rounds, each needing a reply: ${carriedPath(repo, round.n, name)}`,
-      `Write your output to: ${outputPath(repo, round.n, name)}`,
+      'Return your review as your final message: only the JSON object described in the protocol. It is validated and saved for you; if it is rejected you will be told why.',
       `Allowed categories: ${REVIEWERS[name].categories.join(', ')}`,
     ].join('\n'),
   };
