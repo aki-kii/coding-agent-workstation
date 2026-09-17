@@ -97,24 +97,31 @@ export function mentionsPullRequestCreation(command) {
 // redirect or expand, and no flags that write.
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 const READ_ONLY_COMMANDS = [
-  /^git (diff|show|log|status|blame|rev-parse|ls-files|grep)( |$)/,
+  /^git (diff|show|log|status|blame|rev-parse|ls-files)( |$)/,
   /^(mise exec -- )?pnpm exec vp check( |$)/,
   // CI=1 stops Vitest from writing snapshots for new tests.
   /^CI=1 (mise exec -- )?pnpm exec vp test run( |$)/,
 ];
 const SHELL_SYNTAX = /[;&|<>`$\\\n]/;
-const WRITING_FLAGS = /(^| )(--output|--fix|-u|--update|-O|--open-files-in-pager)(=| |$)/;
+// git and cac accept unambiguous abbreviations, so a prefix of these is refused too.
+const WRITING_OPTIONS = ['--output', '--ext-diff', '--textconv', '--fix', '--update'];
 export const READ_ONLY_HELP = [
-  'git diff|show|log|status|blame|rev-parse|ls-files|grep ...',
+  'git diff|show|log|status|blame|rev-parse|ls-files ...',
   '[mise exec -- ]pnpm exec vp check ...',
   'CI=1 [mise exec -- ]pnpm exec vp test run ...',
 ].join('; ');
 
 export function isReadOnlyCommand(command) {
   const c = command.trim();
-  return (
-    !SHELL_SYNTAX.test(c) && !WRITING_FLAGS.test(c) && READ_ONLY_COMMANDS.some((p) => p.test(c))
-  );
+  if (SHELL_SYNTAX.test(c) || !READ_ONLY_COMMANDS.some((p) => p.test(c))) return false;
+  // The shell removes quotes, so `'--output=x'` must be judged as `--output=x`.
+  const args = c.replace(/['"]/g, '').split(/\s+/);
+  return !args.some((arg) => {
+    // Short option clusters: -O (orderfile or pager) and -u (update snapshots), in any position.
+    if (/^-[^-]/.test(arg)) return /[Ou]/.test(arg);
+    const name = arg.split('=')[0];
+    return name.length > 2 && WRITING_OPTIONS.some((option) => option.startsWith(name));
+  });
 }
 
 // A reviewer whose final message keeps failing validation is let go; judge then reports it.
@@ -331,7 +338,8 @@ function stopGuard() {
       rmSync(counterPath, { force: true });
       return;
     }
-    const key = `${state.rounds.length}:${due.step}`;
+    // Counted per user prompt, so ordinary turns in between do not use up the limit.
+    const key = `${input.prompt_id}:${state.rounds.length}:${due.step}`;
     const previous = existsSync(counterPath) ? JSON.parse(readFileSync(counterPath, 'utf8')) : {};
     const count = previous.key === key ? previous.count + 1 : 1;
     if (count > MAX_STOP_BLOCKS) return;
@@ -384,7 +392,8 @@ function collect() {
     } catch (error) {
       errors = [`${name}: the final message is not a JSON object (${error.message})`];
     }
-    const attemptsPath = join(roundDir(repo, round.n), `${name}.attempts`);
+    // Per launch, so a reviewer launched again starts with a fresh allowance.
+    const attemptsPath = join(roundDir(repo, round.n), `${name}.${input.agent_id}.attempts`);
     if (errors.length === 0) {
       writeFileSync(outputPath(repo, round.n, name), JSON.stringify(output, null, 2));
       rmSync(attemptsPath, { force: true });

@@ -39,7 +39,7 @@
           },
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" stop-guard",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" ] || exit 0; node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" stop-guard",
             "timeout": 60
           }
         ]

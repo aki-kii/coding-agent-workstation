@@ -542,7 +542,14 @@ describe('reviewer guard', () => {
       'pnpm exec vp test run',
       'CI=1 pnpm exec vp test run -u',
       'pnpm exec vp check --fix',
-      'git grep -O foo',
+      'git grep -Orm -e .',
+      'git diff -Oorder',
+      'git diff --out=x',
+      "git diff '--output=x'",
+      'git log --ext-diff',
+      'git show --text=x',
+      'CI=1 pnpm exec vp test run -Ru',
+      'pnpm exec vp check --fi',
     ]) {
       expect(bash(command), command).toBe(2);
     }
@@ -552,7 +559,11 @@ describe('reviewer guard', () => {
 
 describe('collect', () => {
   const collect = (message: string, agent = 'review-general') =>
-    hook('collect', { agent_type: agent, last_assistant_message: message });
+    hook('collect', {
+      agent_type: agent,
+      agent_id: 'first-launch',
+      last_assistant_message: message,
+    });
 
   test('saves a valid final message, fenced or not', () => {
     write('README.md', 'changed\n');
@@ -566,7 +577,7 @@ describe('collect', () => {
     expect(ok('judge').result).toBe('FIX');
   });
 
-  test('sends an invalid message back, then gives up after 3 attempts', () => {
+  test('sends an invalid message back, gives up after 3 attempts, and resets for a relaunch', () => {
     write('README.md', 'changed\n');
     ok('start', '--base', 'main');
 
@@ -576,6 +587,13 @@ describe('collect', () => {
     }
     expect(collect('no json at all').stdout).toBe('');
     expect(run('judge').stderr).toMatch(/general: missing/);
+
+    const relaunched = hook('collect', {
+      agent_type: 'review-general',
+      agent_id: 'second-launch',
+      last_assistant_message: 'no json at all',
+    });
+    expect(JSON.parse(relaunched.stdout)).toMatchObject({ decision: 'block' });
   });
 
   test('ignores agents outside the current round', () => {
@@ -634,7 +652,8 @@ describe('step', () => {
 });
 
 describe('stop-guard', () => {
-  const stop = (input: object = {}) => hook('stop-guard', { background_tasks: [], ...input });
+  const stop = (input: object = {}) =>
+    hook('stop-guard', { prompt_id: 'prompt-1', background_tasks: [], ...input });
 
   test('stays out of the way without a review in progress', () => {
     expect(stop().stdout).toBe('');
@@ -664,6 +683,8 @@ describe('stop-guard', () => {
 
     for (let i = 0; i < 3; i++) expect(stop().stdout).toContain('judge');
     expect(stop().stdout).toBe('');
+    // A new user prompt gets its own allowance.
+    expect(stop({ prompt_id: 'prompt-2' }).stdout).toContain('judge');
 
     ok('judge');
     expect(stop().stdout).toContain('respond');

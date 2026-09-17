@@ -17,9 +17,11 @@ You are read-only, and hooks enforce it:
 
 - `Read`, `Grep`, `Glob`, `WebFetch` and `WebSearch` work as usual. Nothing that writes or edits files is allowed.
 - `Bash` runs only these commands, with no `;`, `&`, `|`, `<`, `>`, `$` or backslash in them:
-  - `git diff|show|log|status|blame|rev-parse|ls-files|grep ...` (without `--output` or `-O`)
-  - `pnpm exec vp check ...` (without `--fix`)
-  - `CI=1 pnpm exec vp test run ...` (without `-u`); `CI=1` keeps Vitest from writing snapshots
+  - `git diff|show|log|status|blame|rev-parse|ls-files ...`
+  - `pnpm exec vp check ...`
+  - `CI=1 pnpm exec vp test run ...`; `CI=1` keeps Vitest from writing snapshots
+
+  Options that write or run other programs are refused in any spelling: `--output`, `--ext-diff`, `--textconv`, `--fix`, `--update` and their abbreviations, and any short option cluster containing `O` or `u`. Use the `Grep` tool to search.
 
 Either may be prefixed with `mise exec -- `. Anything else is refused; read the code instead of trying to run it.
 
