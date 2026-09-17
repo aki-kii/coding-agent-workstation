@@ -9,6 +9,7 @@ const projenGenerated = readFileSync('.gitattributes', 'utf8')
 
 const buildOutput = ['lib/**', 'dist/**', '.jsii', 'tsconfig.tsbuildinfo', 'coverage/**'];
 const integSnapshots = ['test/*.snapshot/**'];
+const worktrees = ['.claude/worktrees/**'];
 
 export default defineConfig({
   fmt: {
@@ -16,11 +17,11 @@ export default defineConfig({
     trailingComma: 'all',
     semi: true,
     printWidth: 100,
-    ignorePatterns: [...projenGenerated, ...buildOutput, ...integSnapshots],
+    ignorePatterns: [...projenGenerated, ...buildOutput, ...integSnapshots, ...worktrees],
   },
   lint: {
     plugins: ['typescript', 'unicorn', 'oxc', 'import'],
-    ignorePatterns: [...projenGenerated, ...buildOutput, ...integSnapshots],
+    ignorePatterns: [...projenGenerated, ...buildOutput, ...integSnapshots, ...worktrees],
     options: {
       typeAware: true,
       typeCheck: true,
