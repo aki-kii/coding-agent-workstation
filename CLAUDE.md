@@ -56,6 +56,16 @@ Layers 1 and 2 also run automatically. When a turn ends with uncommitted changes
 
 Integration test stacks must not set physical names, and must set `RemovalPolicy.DESTROY` explicitly.
 
+## Pull requests
+
+Open pull requests through the `review-pr` skill. It runs reviewer subagents (`general`, `cdk`, `security`, `script`) in a loop driven by `.claude/review/review.mjs`, which picks the reviewers from the changed paths and lines and decides when the loop ends. A PreToolUse hook blocks `gh pr create` until the review has passed for the current files.
+
+- Only findings at `medium` severity or above with `likely` confidence or above have to be fixed or disputed.
+- A dispute needs evidence the reviewer can check. Only the reviewer can withdraw a finding.
+- The loop aborts and hands the decision to you after 3 rounds, when the same file, reviewer and category come back in consecutive rounds, or when a maintained finding is disputed twice for the same reason. Do not restart an aborted review on your own.
+
+Tests for the controller are in `test/harness/`.
+
 ## Version constraints
 
 Two pins in `.projenrc.ts` are deliberate and load-bearing. Read this section before changing either. The weekly upgrade workflow excludes both, along with the packages that must move with them.
