@@ -65,7 +65,7 @@ The hook's `if` rules let Claude Code's own command parser decide which Bash cal
 Hooks also keep the loop on its rails:
 
 - `review.mjs step` names the one thing to do next, and a Stop hook keeps the turn going while a step you can do right now is due (it lets the turn end after 3 blocks for the same step).
-- Reviewers are read-only. Their frontmatter hooks refuse every tool that writes and allow only a fixed list of read-only Bash commands; the `tools` list alone does not restrict Bash. A reviewer returns its review as its final message, and a SubagentStop hook validates and saves it, sending it back to the reviewer when it is invalid.
+- Reviewers are read-only. Their frontmatter hooks refuse every tool that writes and allow only a fixed list of read-only Bash commands; the `tools` list alone does not restrict Bash. `vp` commands are allowed with paths only. If reviewers need a check with options, define it as a projen task in `.projenrc.ts` and add that exact `npx projen <task>` to the allowlist in `review.mjs`, rather than allowing options. A reviewer returns its review as its final message, and a SubagentStop hook validates and saves it, sending it back to the reviewer when it is invalid.
 
 - Only findings at `medium` severity or above with `likely` confidence or above have to be fixed or disputed.
 - A dispute needs evidence the reviewer can check. Only the reviewer can withdraw a finding.

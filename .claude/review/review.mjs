@@ -96,31 +96,40 @@ export function mentionsPullRequestCreation(command) {
 // Reviewer Bash calls: a fixed set of read-only commands, with no shell syntax to chain,
 // redirect or expand, and no flags that write.
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
-const READ_ONLY_COMMANDS = [
-  /^git (diff|show|log|status|blame|rev-parse|ls-files)( |$)/,
+// git subcommands take options, minus the few that write or run a program. vp commands take
+// paths only: their options are open-ended (reporters, coverage, config), so a check that needs
+// options belongs in a projen task added here by name.
+const GIT_READ_ONLY = /^git (diff|show|log|status|blame|rev-parse|ls-files)( |$)/;
+const PATHS_ONLY = [
   /^(mise exec -- )?pnpm exec vp check( |$)/,
   // CI=1 stops Vitest from writing snapshots for new tests.
   /^CI=1 (mise exec -- )?pnpm exec vp test run( |$)/,
 ];
 const SHELL_SYNTAX = /[;&|<>`$\\\n]/;
-// git and cac accept unambiguous abbreviations, so a prefix of these is refused too.
-const WRITING_OPTIONS = ['--output', '--ext-diff', '--textconv', '--fix', '--update'];
+// git accepts unambiguous abbreviations, so a prefix of these is refused too.
+const GIT_WRITING_OPTIONS = ['--output', '--ext-diff', '--textconv'];
 export const READ_ONLY_HELP = [
   'git diff|show|log|status|blame|rev-parse|ls-files ...',
-  '[mise exec -- ]pnpm exec vp check ...',
-  'CI=1 [mise exec -- ]pnpm exec vp test run ...',
+  '[mise exec -- ]pnpm exec vp check [paths]',
+  'CI=1 [mise exec -- ]pnpm exec vp test run [paths]',
 ].join('; ');
 
 export function isReadOnlyCommand(command) {
   const c = command.trim();
-  if (SHELL_SYNTAX.test(c) || !READ_ONLY_COMMANDS.some((p) => p.test(c))) return false;
+  if (SHELL_SYNTAX.test(c)) return false;
   // The shell removes quotes, so `'--output=x'` must be judged as `--output=x`.
   const args = c.replace(/['"]/g, '').split(/\s+/);
+  const prefix = PATHS_ONLY.find((p) => p.test(c));
+  if (prefix) {
+    const rest = c.replace(/['"]/g, '').replace(prefix, '').trim();
+    return rest === '' || rest.split(/\s+/).every((arg) => !arg.startsWith('-'));
+  }
+  if (!GIT_READ_ONLY.test(c)) return false;
   return !args.some((arg) => {
-    // Short option clusters: -O (orderfile or pager) and -u (update snapshots), in any position.
-    if (/^-[^-]/.test(arg)) return /[Ou]/.test(arg);
+    // -O<orderfile> in any short option cluster.
+    if (/^-[^-]/.test(arg)) return arg.includes('O');
     const name = arg.split('=')[0];
-    return name.length > 2 && WRITING_OPTIONS.some((option) => option.startsWith(name));
+    return name.length > 2 && GIT_WRITING_OPTIONS.some((option) => option.startsWith(name));
   });
 }
 

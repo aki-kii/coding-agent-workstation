@@ -550,6 +550,9 @@ describe('reviewer guard', () => {
       'git show --text=x',
       'CI=1 pnpm exec vp test run -Ru',
       'pnpm exec vp check --fi',
+      'CI=1 pnpm exec vp test run --reporter=json --outputFile=.claude/settings.json',
+      'CI=1 pnpm exec vp test run test "--coverage.reportsDirectory=src"',
+      'pnpm exec vp check -c other.config.ts',
     ]) {
       expect(bash(command), command).toBe(2);
     }
