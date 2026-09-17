@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" gate"
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" gate",
+            "timeout": 60
           }
         ]
       }

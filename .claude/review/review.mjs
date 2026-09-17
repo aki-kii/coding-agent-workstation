@@ -13,6 +13,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -80,8 +81,18 @@ export const REVIEWERS = {
 const DIFF_EXCLUDE = ['pnpm-lock.yaml', 'API.md'];
 // Inside the working tree so worktree-isolated agents can write their output. Kept out of snapshots.
 export const STATE_DIR = '.claude/review/.state';
-// `gh pr create` in command position: start of a line or after ; & | ( or $(.
-export const PR_CREATE = /(^|[;&|(]|\$\()\s*gh\s+pr\s+create\b/m;
+// Pull request creation through gh: `pr create` or its alias `pr new` after any global flags,
+// or a write to the pulls API. Quoted strings are dropped first so a commit message or a grep
+// pattern does not match, except the script of `sh -c "..."`, which is checked.
+const PR_COMMANDS = [
+  /\bgh\b[^;&|\n]*?\bpr\s+(create|new)\b/,
+  /\bgh\s+api\b(?=[^;&|\n]*\bpulls\b)(?=[^;&|\n]*(-X\s*POST|--method[=\s]POST|\s-[fF]\s|--(raw-)?field\b|--input\b))/,
+];
+
+export function createsPullRequest(command) {
+  const unquoted = command.replace(/(?<!-c\s+)(['"])(?:\\.|(?!\1)[^\\])*\1/g, ' ');
+  return PR_COMMANDS.some((pattern) => pattern.test(unquoted));
+}
 
 class ReviewError extends Error {}
 
@@ -113,7 +124,12 @@ function start(repo, args) {
   if (state && state.status !== 'done' && !args.includes('--restart')) {
     fail(`a review is already ${state.status}; pass --restart to discard it`);
   }
-  const base = option(args, '--base') ?? repo.git(['merge-base', 'HEAD', 'origin/main']).trim();
+  // Pin the base to a commit so a moving ref cannot change later diffs.
+  const base = option(args, '--base')
+    ? repo
+        .git(['rev-parse', '--verify', '--end-of-options', `${option(args, '--base')}^{commit}`])
+        .trim()
+    : repo.git(['merge-base', 'HEAD', 'origin/main']).trim();
   const tree = repo.snapshot();
   const files = repo.changedFiles(base, tree);
   rmSync(repo.dir, { recursive: true, force: true });
@@ -231,7 +247,7 @@ function gate() {
   let why;
   try {
     const input = JSON.parse(readFileSync(0, 'utf8'));
-    if (!PR_CREATE.test(input.tool_input?.command ?? '')) return;
+    if (!createsPullRequest(input.tool_input?.command ?? '')) return;
     const repo = openRepo(input.cwd ?? process.cwd());
     const state = repo.load();
     why = !state
@@ -240,7 +256,12 @@ function gate() {
         ? `the review is ${state.status}`
         : state.passedTree !== repo.snapshot()
           ? 'files changed after the review passed'
-          : null;
+          : // The pull request is built from pushed commits, not from the working tree.
+            state.passedTree !== repo.treeOf('HEAD')
+            ? 'the reviewed files are not all committed; commit them, push, then run gh pr create on its own'
+            : state.passedTree !== repo.treeOf('@{upstream}')
+              ? 'the reviewed commit is not pushed; push, then run gh pr create on its own'
+              : null;
   } catch (error) {
     // Fail closed: only exit 2 blocks the tool call.
     why = `the review state could not be checked (${error.message})`;
@@ -502,6 +523,10 @@ export function validateResponses(state, responses) {
   const errors = [];
   const open = openFindings(state).map((f) => f.id);
   const answered = responses.map((r) => r.id);
+  for (const id of new Set(answered)) {
+    if (answered.indexOf(id) !== answered.lastIndexOf(id))
+      errors.push(`duplicate response for ${id}`);
+  }
   for (const id of open)
     if (!answered.includes(id)) errors.push(`no response for open finding ${id}`);
   for (const r of responses) {
@@ -605,26 +630,43 @@ export function openRepo(cwd) {
     },
     // Tree of the working copy, untracked files included, without touching the real index.
     snapshot: () => {
-      const index = join(tmpdir(), `claude-review-index-${process.pid}`);
+      const temp = mkdtempSync(join(tmpdir(), 'claude-review-'));
+      const index = join(temp, 'index');
       const env = { ...process.env, GIT_INDEX_FILE: index };
       try {
         // Start from the real index so its stat cache spares rehashing unchanged files.
         const real = resolve(root, git(['rev-parse', '--git-path', 'index'], { cwd: root }).trim());
         if (existsSync(real)) copyFileSync(real, index);
         else git(['read-tree', 'HEAD'], { env, cwd: root });
-        git(['add', '-A', '--', '.', `:(exclude)${STATE_DIR}`], { env, cwd: root });
+        git(['add', '-A'], { env, cwd: root });
+        // Excluded even where .gitignore does not cover it; an exclude pathspec fails when it does.
+        git(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', STATE_DIR], {
+          env,
+          cwd: root,
+        });
         return git(['write-tree'], { env, cwd: root }).trim();
       } finally {
-        rmSync(index, { force: true });
+        rmSync(temp, { recursive: true, force: true });
       }
     },
-    // -z keeps non-ASCII paths unquoted.
+    treeOf: (ref) => {
+      const r = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${ref}^{tree}`], {
+        cwd: root,
+        encoding: 'utf8',
+      });
+      return r.status === 0 ? r.stdout.trim() : null;
+    },
+    // -z keeps non-ASCII paths unquoted; --no-renames lists both sides of a rename.
     changedFiles: (from, to) =>
-      git(['diff', '--name-only', '-z', from, to, '--']).split('\0').filter(Boolean),
+      git(['diff', '--name-only', '-z', '--no-renames', from, to, '--'])
+        .split('\0')
+        .filter(Boolean),
     diff: (from, to, files) => {
       const shown = files.filter((f) => !DIFF_EXCLUDE.includes(f));
       const hidden = files.filter((f) => DIFF_EXCLUDE.includes(f));
-      const body = shown.length ? git(['diff', from, to, '--', ...shown]) : '';
+      const body = shown.length
+        ? git(['-c', 'core.quotePath=false', 'diff', '--no-renames', from, to, '--', ...shown])
+        : '';
       return hidden.length ? `${body}\n# Changed but not shown: ${hidden.join(', ')}\n` : body;
     },
   };

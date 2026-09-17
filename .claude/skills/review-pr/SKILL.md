@@ -57,7 +57,7 @@ Before disputing, investigate. Read the code the finding points at and what call
 
 If the investigation shows the reviewer is right, fix it instead.
 
-Write one response per open finding to `.git/…/round-<n>/responses.json` (the exact path is in the error if you run `next` without it):
+Write one response per open finding to `.claude/review/.state/<branch>/round-<n>/responses.json` (the exact path is in the error if you run `next` without it):
 
 ```json
 [
@@ -95,7 +95,7 @@ It prints the next `REVIEW` plan (back to step 2) or `ABORT`.
 node .claude/review/review.mjs summary
 ```
 
-Append its output to the pull request body, then create the pull request. If you change any file after `DONE`, the gate blocks `gh pr create` again; run the skill from step 1.
+Append its output to the pull request body. Commit everything the review saw, push, and then run `gh pr create` as a command of its own. The gate lets it through only when the working tree, `HEAD` and the pushed upstream all match what the review passed. If you change any file after `DONE`, the gate blocks again; run the skill from step 1.
 
 ## 6. Aborted
 

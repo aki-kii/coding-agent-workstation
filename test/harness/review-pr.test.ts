@@ -23,13 +23,18 @@ interface Result {
 }
 
 let repo: string;
+let remote: string;
 
 beforeEach(() => {
   repo = mkdtempSync(join(tmpdir(), 'review-pr-test-'));
+  remote = mkdtempSync(join(tmpdir(), 'review-pr-remote-'));
+  spawnSync('git', ['init', '-q', '--bare', remote]);
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
   git('config', 'user.name', 'test');
+  git('remote', 'add', 'origin', remote);
   write('README.md', 'base\n');
+  write('.gitignore', '.claude/review/.state/\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'base');
   git('switch', '-q', '-c', 'feature');
@@ -37,6 +42,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(repo, { recursive: true, force: true });
+  rmSync(remote, { recursive: true, force: true });
 });
 
 function git(...args: string[]): string {
@@ -123,7 +129,7 @@ describe('reviewer selection', () => {
 });
 
 describe('stopping', () => {
-  test('passes when no finding reaches the threshold, and the gate follows the tree', () => {
+  test('passes when no finding reaches the threshold, and the gate follows what is pushed', () => {
     write('README.md', 'changed\n');
     ok('start', '--base', 'main');
     expect(gate()).toBe(2);
@@ -139,6 +145,11 @@ describe('stopping', () => {
 
     expect(result.result).toBe('DONE');
     expect(result.notes).toHaveLength(2);
+    // Reviewed, but not committed, then not pushed.
+    expect(gate()).toBe(2);
+    git('commit', '-q', '-am', 'change');
+    expect(gate()).toBe(2);
+    git('push', '-q', '-u', 'origin', 'feature');
     expect(gate()).toBe(0);
     write('README.md', 'changed again\n');
     expect(gate()).toBe(2);
@@ -319,9 +330,25 @@ describe('gate', () => {
     expect(gate("grep -rn 'gh pr create' .claude")).toBe(0);
   });
 
-  test('blocks pull request creation in command position', () => {
-    expect(gate('git push && gh pr create --fill')).toBe(2);
-    expect(gate('cd sub; gh pr create')).toBe(2);
+  test('blocks every form of pull request creation', () => {
+    for (const command of [
+      'git push && gh pr create --fill',
+      'cd sub; gh pr create --title "x"',
+      'gh pr new --fill',
+      'gh -R owner/repo pr create',
+      'GH_PROMPT_DISABLED=1 gh pr create',
+      'env gh pr create',
+      'command gh pr create',
+      'time gh pr create',
+      '{ gh pr create; }',
+      'bash -c "gh pr create --fill"',
+      'gh api repos/o/r/pulls -X POST -f head=feature',
+      'gh api repos/o/r/pulls -f title=x',
+    ]) {
+      expect(gate(command), command).toBe(2);
+    }
+    expect(gate('gh api repos/o/r/pulls')).toBe(0);
+    expect(gate('gh pr view 3')).toBe(0);
   });
 
   test('fails closed when the state cannot be read', () => {
@@ -346,23 +373,39 @@ describe('diffs', () => {
   });
 
   test('a reviewer carried only for its finding still sees the fix to that file', () => {
+    // security is selected by src/a.ts but raises its finding on src/b.ts.
     write('src/a.ts', "new iam.Role(this, 'Role');\n");
+    write('src/b.ts', 'const bucket = 1;\n');
     ok('start', '--base', 'main');
     review(1, 'general', { replies: [], findings: [] });
     review(1, 'cdk', { replies: [], findings: [] });
     review(1, 'security', {
       replies: [],
-      findings: [finding({ category: 'iam', severity: 'high', confidence: 'confirmed' })],
+      findings: [finding({ file: 'src/b.ts', category: 'network', severity: 'high' })],
     });
     ok('judge');
     respond(1, [{ id: 'security-R1-1', action: 'fix' }]);
-    // The fixed line no longer matches any security rule.
-    write('src/a.ts', 'narrowed\n');
+    // Neither the removed nor the added line matches a security rule.
+    write('src/b.ts', 'const bucket = 2;\n');
 
     const round2 = ok('next');
 
     expect(round2.reviewers).toContainEqual(
-      expect.objectContaining({ reviewer: 'security', files: ['src/a.ts'] }),
+      expect.objectContaining({ reviewer: 'security', selectedBy: 'carried', files: ['src/b.ts'] }),
+    );
+  });
+
+  test('a rename lists both the old and the new path', () => {
+    write('src/old.ts', 'x\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'old');
+    const base = git('rev-parse', 'HEAD').trim();
+    git('mv', 'src/old.ts', 'src/new.ts');
+
+    const plan = ok('start', '--base', base);
+
+    expect(plan.reviewers).toContainEqual(
+      expect.objectContaining({ reviewer: 'general', files: ['src/new.ts', 'src/old.ts'] }),
     );
   });
 });
@@ -396,11 +439,13 @@ describe('validation', () => {
 
     respond(1, [
       { id: 'general-R1-1', action: 'dispute', reasonType: 'by-design', reason: 'intended' },
+      { id: 'general-R1-1', action: 'fix' },
     ]);
     const r = run('next');
 
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/general-R1-1: a dispute needs evidence/);
     expect(r.stderr).toMatch(/no response for open finding general-R1-2/);
+    expect(r.stderr).toMatch(/duplicate response for general-R1-1/);
   });
 });
