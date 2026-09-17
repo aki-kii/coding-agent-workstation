@@ -93,44 +93,96 @@ export function mentionsPullRequestCreation(command) {
   return /\bgh\b/.test(command) && /\bpr\b[\s\S]*\b(create|new)\b/.test(command);
 }
 
-// Reviewer Bash calls: a fixed set of read-only commands, with no shell syntax to chain,
-// redirect or expand, and no flags that write.
+// Reviewer Bash calls: a fixed set of read-only commands. Words are split the way the shell
+// would, and anything the shell could expand, chain or redirect is refused before any command
+// is matched: allowing characters is safer than listing the dangerous ones.
 const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
-// git subcommands take options, minus the few that write or run a program. vp commands take
-// paths only: their options are open-ended (reporters, coverage, config), so a check that needs
-// options belongs in a projen task added here by name.
-const GIT_READ_ONLY = /^git (diff|show|log|status|blame|rev-parse|ls-files)( |$)/;
-const PATHS_ONLY = [
-  /^(mise exec -- )?pnpm exec vp check( |$)/,
-  // CI=1 stops Vitest from writing snapshots for new tests.
-  /^CI=1 (mise exec -- )?pnpm exec vp test run( |$)/,
-];
-const SHELL_SYNTAX = /[;&|<>`$\\\n]/;
+const PLAIN = /[A-Za-z0-9_./:@%^,+=~-]/;
+// Double quotes still expand these.
+const EXPANDS_IN_DOUBLE_QUOTES = /[$`\\!]/;
+const GIT_READ_ONLY = ['diff', 'show', 'log', 'status', 'blame', 'rev-parse', 'ls-files'];
 // git accepts unambiguous abbreviations, so a prefix of these is refused too.
 const GIT_WRITING_OPTIONS = ['--output', '--ext-diff', '--textconv'];
+// ripgrep options that run another program.
+const RG_RUNNING_OPTIONS = ['--pre', '--pre-glob', '--search-zip', '--hostname-bin'];
 export const READ_ONLY_HELP = [
   'git diff|show|log|status|blame|rev-parse|ls-files ...',
+  'grep ...',
+  'rg ...',
   '[mise exec -- ]pnpm exec vp check [paths]',
   'CI=1 [mise exec -- ]pnpm exec vp test run [paths]',
 ].join('; ');
 
-export function isReadOnlyCommand(command) {
-  const c = command.trim();
-  if (SHELL_SYNTAX.test(c)) return false;
-  // The shell removes quotes, so `'--output=x'` must be judged as `--output=x`.
-  const args = c.replace(/['"]/g, '').split(/\s+/);
-  const prefix = PATHS_ONLY.find((p) => p.test(c));
-  if (prefix) {
-    const rest = c.replace(/['"]/g, '').replace(prefix, '').trim();
-    return rest === '' || rest.split(/\s+/).every((arg) => !arg.startsWith('-'));
+// Returns the words the shell would pass, or null when the command uses any shell syntax.
+export function shellWords(command) {
+  const words = [];
+  let word = null;
+  let quote = null;
+  for (const ch of command.trim()) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else if (quote === '"' && EXPANDS_IN_DOUBLE_QUOTES.test(ch)) return null;
+      else word.text += ch;
+    } else if (ch === ' ') {
+      if (word) words.push(word);
+      word = null;
+    } else if (ch === "'" || ch === '"') {
+      word ??= { text: '', quotedStart: true };
+      quote = ch;
+    } else if (PLAIN.test(ch)) {
+      word ??= { text: '', quotedStart: false };
+      word.text += ch;
+    } else {
+      return null;
+    }
   }
-  if (!GIT_READ_ONLY.test(c)) return false;
-  return !args.some((arg) => {
-    // -O<orderfile> in any short option cluster.
-    if (/^-[^-]/.test(arg)) return arg.includes('O');
-    const name = arg.split('=')[0];
-    return name.length > 2 && GIT_WRITING_OPTIONS.some((option) => option.startsWith(name));
-  });
+  if (quote) return null;
+  if (word) words.push(word);
+  // A leading = or ~ expands in zsh and bash.
+  if (words.some((w) => !w.quotedStart && /^[=~]/.test(w.text))) return null;
+  return words.map((w) => w.text);
+}
+
+const isOption = (arg) => arg.startsWith('-');
+const abbreviates = (arg, options) => {
+  const name = arg.split('=')[0];
+  return name.length > 2 && options.some((option) => option.startsWith(name));
+};
+
+export function isReadOnlyCommand(command) {
+  const words = shellWords(command);
+  if (!words || words.length === 0) return false;
+  const [head, ...args] = words;
+
+  if (head === 'git') {
+    const [sub, ...rest] = args;
+    return (
+      GIT_READ_ONLY.includes(sub) &&
+      !rest.some((arg) =>
+        // -O<orderfile> in any short option cluster.
+        /^-[^-]/.test(arg) ? arg.includes('O') : abbreviates(arg, GIT_WRITING_OPTIONS),
+      )
+    );
+  }
+  if (head === 'grep') return true;
+  if (head === 'rg') {
+    return !args.some((arg) =>
+      /^-[^-]/.test(arg) ? arg.includes('z') : abbreviates(arg, RG_RUNNING_OPTIONS),
+    );
+  }
+
+  // vp commands take paths only: their options are open-ended (reporters, coverage, config), so
+  // a check that needs options belongs in a projen task added here by name.
+  const ci = head === 'CI=1';
+  let rest = ci ? args : words;
+  if (rest.slice(0, 3).join(' ') === 'mise exec --') rest = rest.slice(3);
+  const vp = rest.slice(0, 3).join(' ') === 'pnpm exec vp' ? rest.slice(3) : null;
+  if (!vp) return false;
+  const [first, second, ...paths] = vp;
+  if (!ci && first === 'check') return ![second, ...paths].some((a) => a && isOption(a));
+  // CI=1 stops Vitest from writing snapshots for new tests.
+  if (ci && first === 'test' && second === 'run') return !paths.some(isOption);
+  return false;
 }
 
 // A reviewer whose final message keeps failing validation is let go; judge then reports it.
@@ -349,7 +401,12 @@ function stopGuard() {
     }
     // Counted per user prompt, so ordinary turns in between do not use up the limit.
     const key = `${input.prompt_id}:${state.rounds.length}:${due.step}`;
-    const previous = existsSync(counterPath) ? JSON.parse(readFileSync(counterPath, 'utf8')) : {};
+    let previous = {};
+    try {
+      previous = JSON.parse(readFileSync(counterPath, 'utf8'));
+    } catch {
+      // Missing or half-written: start counting again.
+    }
     const count = previous.key === key ? previous.count + 1 : 1;
     if (count > MAX_STOP_BLOCKS) return;
     writeFileSync(counterPath, JSON.stringify({ key, count }));
@@ -369,7 +426,7 @@ function guard() {
     const tool = input.tool_name;
     if (tool === 'Bash') {
       if (!isReadOnlyCommand(input.tool_input?.command ?? '')) {
-        why = `reviewers may run only these commands, with no ; & | < > $ or backslash: ${READ_ONLY_HELP}`;
+        why = `reviewers may run only these commands, using letters, digits, _ . / : @ % ^ , + = ~ - and quotes: ${READ_ONLY_HELP}`;
       }
     } else if (!READ_ONLY_TOOLS.includes(tool)) {
       why = `reviewers are read-only and cannot use ${tool}. Return your review as your final message.`;

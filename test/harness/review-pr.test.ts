@@ -520,6 +520,9 @@ describe('reviewer guard', () => {
     for (const command of [
       'git diff HEAD~1 -- src',
       "git log --format='%h %s' -3",
+      'git log --format="%h %s" HEAD~3..HEAD',
+      "grep -rn 'foo(bar)*[0-9]' src",
+      "rg -n 'a|b$' .claude",
       'CI=1 pnpm exec vp test run test/harness',
       'mise exec -- pnpm exec vp check src',
     ]) {
@@ -553,6 +556,16 @@ describe('reviewer guard', () => {
       'CI=1 pnpm exec vp test run --reporter=json --outputFile=.claude/settings.json',
       'CI=1 pnpm exec vp test run test "--coverage.reportsDirectory=src"',
       'pnpm exec vp check -c other.config.ts',
+      'git diff {--output=src/a.ts,HEAD}',
+      'git diff origin/main *',
+      'git diff =(touch pwned)',
+      "git log *(e:'rm -rf src':)",
+      'git log ~/x',
+      'git diff "$(touch x)"',
+      "git diff 'unterminated",
+      'rg --pre=sh x',
+      'rg -nz x',
+      'find . -delete',
     ]) {
       expect(bash(command), command).toBe(2);
     }

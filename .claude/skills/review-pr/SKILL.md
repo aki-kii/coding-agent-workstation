@@ -44,7 +44,7 @@ node .claude/review/review.mjs add security --reason "grants a new role access t
 
 Dispute only when you can show why the finding is wrong for this repository; a finding that is inconvenient is not wrong.
 
-Before disputing, investigate. Read the code the finding points at and what calls it, the library source under `node_modules/` (for example `aws-cdk-lib`), the AWS or tool documentation, and run read-only commands (`pnpm exec vp test run`, a synth, `git log`) that settle the question. Every dispute needs at least one `evidence` item the reviewer can check on their own: a `source` (`file:line`, URL, or the exact command) and a `detail` saying what it shows. The reviewer verifies each item and ignores anything that is only an assertion. If the investigation shows the reviewer is right, fix it instead.
+Before disputing, investigate. Read the code the finding points at and what calls it, the library source under `node_modules/` (for example `aws-cdk-lib`), the AWS or tool documentation, and run commands that settle the question. Every dispute needs at least one `evidence` item the reviewer can check on their own: a `source` (`file:line`, URL, or the exact command) and a `detail` saying what it shows. Reviewers can run only the commands listed in `.claude/review/protocol.md`; for anything else (a synth, a script), save or quote the output in a file under `docs/ai-output/` and cite that file. The reviewer verifies each item and ignores anything that is only an assertion. If the investigation shows the reviewer is right, fix it instead.
 
 Write one response per open finding:
 

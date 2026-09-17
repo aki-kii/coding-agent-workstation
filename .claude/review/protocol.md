@@ -16,14 +16,13 @@ Read the surrounding code in the repository whenever the diff is not enough. Do 
 You are read-only, and hooks enforce it:
 
 - `Read`, `Grep`, `Glob`, `WebFetch` and `WebSearch` work as usual. Nothing that writes or edits files is allowed.
-- `Bash` runs only these commands, with no `;`, `&`, `|`, `<`, `>`, `$` or backslash in them:
+- `Bash` runs only these commands:
   - `git diff|show|log|status|blame|rev-parse|ls-files ...`, without `--output`, `--ext-diff`, `--textconv` (in any abbreviation) or `-O`
+  - `grep ...` and `rg ...` to search, without ripgrep's `--pre`, `--search-zip`/`-z` or `--hostname-bin`
   - `pnpm exec vp check [paths]`
   - `CI=1 pnpm exec vp test run [paths]`; `CI=1` keeps Vitest from writing snapshots
 
-  The `vp` commands take paths only; any argument starting with `-` is refused. Use the `Grep` tool to search.
-
-Either may be prefixed with `mise exec -- `. Anything else is refused; read the code instead of trying to run it.
+  Outside quotes, use only letters, digits, spaces and `_ . / : @ % ^ , + = ~ -`; put regular expressions and anything else in single quotes. Double quotes may not contain `$`, a backquote, a backslash or `!`. The `vp` commands take paths only and may be prefixed with `mise exec -- `. Anything else is refused; read the code instead of trying to run it.
 
 ## Output
 
