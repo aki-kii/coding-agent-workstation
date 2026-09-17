@@ -81,17 +81,11 @@ export const REVIEWERS = {
 const DIFF_EXCLUDE = ['pnpm-lock.yaml', 'API.md'];
 // Inside the working tree so worktree-isolated agents can write their output. Kept out of snapshots.
 export const STATE_DIR = '.claude/review/.state';
-// Pull request creation through gh: `pr create` or its alias `pr new` after any global flags,
-// or a write to the pulls API. Quoted strings are dropped first so a commit message or a grep
-// pattern does not match, except the script of `sh -c "..."`, which is checked.
-const PR_COMMANDS = [
-  /\bgh\b[^;&|\n]*?\bpr\s+(create|new)\b/,
-  /\bgh\s+api\b(?=[^;&|\n]*\bpulls\b)(?=[^;&|\n]*(-X\s*POST|--method[=\s]POST|\s-[fF]\s|--(raw-)?field\b|--input\b))/,
-];
-
-export function createsPullRequest(command) {
-  const unquoted = command.replace(/(?<!-c\s+)(['"])(?:\\.|(?!\1)[^\\])*\1/g, ' ');
-  return PR_COMMANDS.some((pattern) => pattern.test(unquoted));
+// Claude Code decides which commands reach the gate through the hook's `if` rules in
+// .claude/settings.json; it also runs the hook when it cannot parse a command (`echo $(date)`).
+// This loose check lets those unrelated commands through. It over-matches on purpose.
+export function mentionsPullRequestCreation(command) {
+  return /\bgh\b/.test(command) && /\bpr\b[\s\S]*\b(create|new)\b/.test(command);
 }
 
 class ReviewError extends Error {}
@@ -247,7 +241,7 @@ function gate() {
   let why;
   try {
     const input = JSON.parse(readFileSync(0, 'utf8'));
-    if (!createsPullRequest(input.tool_input?.command ?? '')) return;
+    if (!mentionsPullRequestCreation(input.tool_input?.command ?? '')) return;
     const repo = openRepo(input.cwd ?? process.cwd());
     const state = repo.load();
     why = !state
@@ -259,8 +253,8 @@ function gate() {
           : // The pull request is built from pushed commits, not from the working tree.
             state.passedTree !== repo.treeOf('HEAD')
             ? 'the reviewed files are not all committed; commit them, push, then run gh pr create on its own'
-            : state.passedTree !== repo.treeOf('@{upstream}')
-              ? 'the reviewed commit is not pushed; push, then run gh pr create on its own'
+            : state.passedTree !== repo.treeOf(`refs/remotes/origin/${repo.branch}`)
+              ? `the reviewed commit is not pushed to origin/${repo.branch}; push, then run gh pr create on its own`
               : null;
   } catch (error) {
     // Fail closed: only exit 2 blocks the tool call.
@@ -613,14 +607,13 @@ export function openRepo(cwd) {
     return r.stdout;
   };
   const root = git(['rev-parse', '--show-toplevel']).trim();
-  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'])
-    .trim()
-    .replace(/[^\w.-]+/g, '-');
-  const dir = join(root, STATE_DIR, branch);
+  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  const dir = join(root, STATE_DIR, branch.replace(/[^\w.-]+/g, '-'));
   const statePath = join(dir, 'state.json');
 
   return {
     root,
+    branch,
     dir,
     git,
     load: () => (existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : null),

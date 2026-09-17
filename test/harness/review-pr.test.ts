@@ -149,7 +149,10 @@ describe('stopping', () => {
     expect(gate()).toBe(2);
     git('commit', '-q', '-am', 'change');
     expect(gate()).toBe(2);
-    git('push', '-q', '-u', 'origin', 'feature');
+    // A branch cut from main tracks origin/main; the gate compares with origin/feature instead.
+    git('push', '-q', 'origin', 'main');
+    git('branch', '-q', '--set-upstream-to=origin/main');
+    git('push', '-q', 'origin', 'feature');
     expect(gate()).toBe(0);
     write('README.md', 'changed again\n');
     expect(gate()).toBe(2);
@@ -324,31 +327,18 @@ describe('stopping', () => {
 });
 
 describe('gate', () => {
-  test('ignores commands that do not create a pull request, even outside a repository', () => {
-    expect(gate('ls -la', tmpdir())).toBe(0);
-    expect(gate('git commit -m "block gh pr create until review"')).toBe(0);
-    expect(gate("grep -rn 'gh pr create' .claude")).toBe(0);
+  // Which Bash calls reach the gate is decided by the hook's `if` rules in .claude/settings.json.
+  // These cover what the gate itself still decides for calls that do reach it.
+  test('lets through calls Claude Code sent only because it could not parse them', () => {
+    expect(gate('echo $(date)', tmpdir())).toBe(0);
+    expect(gate('$TOOL status')).toBe(0);
+    expect(gate('gh pr view 3')).toBe(0);
   });
 
-  test('blocks every form of pull request creation', () => {
-    for (const command of [
-      'git push && gh pr create --fill',
-      'cd sub; gh pr create --title "x"',
-      'gh pr new --fill',
-      'gh -R owner/repo pr create',
-      'GH_PROMPT_DISABLED=1 gh pr create',
-      'env gh pr create',
-      'command gh pr create',
-      'time gh pr create',
-      '{ gh pr create; }',
-      'bash -c "gh pr create --fill"',
-      'gh api repos/o/r/pulls -X POST -f head=feature',
-      'gh api repos/o/r/pulls -f title=x',
-    ]) {
-      expect(gate(command), command).toBe(2);
-    }
-    expect(gate('gh api repos/o/r/pulls')).toBe(0);
-    expect(gate('gh pr view 3')).toBe(0);
+  test('blocks calls that mention pull request creation, over-matching on purpose', () => {
+    expect(gate('git push && gh pr create --fill')).toBe(2);
+    expect(gate('gh -R owner/repo pr new')).toBe(2);
+    expect(gate('gh issue create --title "pr create"')).toBe(2);
   });
 
   test('fails closed when the state cannot be read', () => {

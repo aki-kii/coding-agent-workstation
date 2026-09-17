@@ -95,7 +95,7 @@ It prints the next `REVIEW` plan (back to step 2) or `ABORT`.
 node .claude/review/review.mjs summary
 ```
 
-Append its output to the pull request body. Commit everything the review saw, push, and then run `gh pr create` as a command of its own. The gate lets it through only when the working tree, `HEAD` and the pushed upstream all match what the review passed. If you change any file after `DONE`, the gate blocks again; run the skill from step 1.
+Append its output to the pull request body. Commit everything the review saw, push, and then run `gh pr create` as a command of its own. The gate lets it through only when the working tree, `HEAD` and `origin/<branch>` all match what the review passed, so push to a branch of the same name (`git push -u origin HEAD`). If you change any file after `DONE`, the gate blocks again; run the skill from step 1.
 
 ## 6. Aborted
 

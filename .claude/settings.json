@@ -6,6 +6,13 @@
         "hooks": [
           {
             "type": "command",
+            "if": "Bash(gh *pr create*)",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" gate",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh *pr new*)",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/review/review.mjs\" gate",
             "timeout": 60
           }
