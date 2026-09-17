@@ -39,6 +39,7 @@ cdk.out/
 docs/ai-output/
 cdk-integ.out.*
 .claude/worktrees/
+.claude/review/.state/
 !/.github/workflows/build.yml
 !/.github/workflows/upgrade.yml
 !/.github/pull_request_template.md
