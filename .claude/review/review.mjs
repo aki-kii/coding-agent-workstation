@@ -54,7 +54,7 @@ export const REVIEWERS = {
       /^pnpm-workspace\.yaml$/,
       /^\.claude\/settings(\.local)?\.json$/,
       /^\.mcp\.json$/,
-      /^\.claude\/hooks\//,
+      /^\.claude\/(hooks|review|agents|skills)\//,
     ],
     // Matched against added and removed lines.
     content: [
@@ -262,7 +262,8 @@ function gate() {
   }
   if (!why) return;
   process.stderr.write(`Pull request blocked: ${why}. Run the review-pr skill first.\n`);
-  process.exit(2);
+  // exitCode rather than exit() so the reason is not cut off on a pipe.
+  process.exitCode = 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -486,6 +487,9 @@ export function validateOutput(state, round, name, output) {
   if (!Array.isArray(output.findings)) at('`findings` must be an array');
   if (!Array.isArray(output.replies)) at('`replies` must be an array');
   if (errors.length) return errors;
+  if ([...output.replies, ...output.findings].some((x) => typeof x !== 'object' || x === null)) {
+    return [`${name}: every reply and finding must be an object`];
+  }
 
   const expected = round.carried.filter((id) => state.findings[id].reviewer === name);
   const answered = output.replies.map((r) => r.id);
@@ -514,6 +518,9 @@ export function validateOutput(state, round, name, output) {
 
 export function validateResponses(state, responses) {
   if (!Array.isArray(responses)) return ['responses must be an array'];
+  if (responses.some((r) => typeof r !== 'object' || r === null)) {
+    return ['every response must be an object'];
+  }
   const errors = [];
   const open = openFindings(state).map((f) => f.id);
   const answered = responses.map((r) => r.id);
@@ -596,9 +603,11 @@ function renderSummary(state) {
 // Git
 
 export function openRepo(cwd) {
+  // Paths passed to git are relative to the root, so every call after the first runs there.
+  let at = cwd;
   const git = (args, options = {}) => {
     const r = spawnSync('git', args, {
-      cwd,
+      cwd: at,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
       ...options,
@@ -607,6 +616,7 @@ export function openRepo(cwd) {
     return r.stdout;
   };
   const root = git(['rev-parse', '--show-toplevel']).trim();
+  at = root;
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   const dir = join(root, STATE_DIR, branch.replace(/[^\w.-]+/g, '-'));
   const statePath = join(dir, 'state.json');
@@ -658,7 +668,21 @@ export function openRepo(cwd) {
       const shown = files.filter((f) => !DIFF_EXCLUDE.includes(f));
       const hidden = files.filter((f) => DIFF_EXCLUDE.includes(f));
       const body = shown.length
-        ? git(['-c', 'core.quotePath=false', 'diff', '--no-renames', from, to, '--', ...shown])
+        ? git([
+            '-c',
+            'core.quotePath=false',
+            'diff',
+            // Fixed format regardless of user config; changedLines parses the a/ b/ headers.
+            '--no-ext-diff',
+            '--no-color',
+            '--src-prefix=a/',
+            '--dst-prefix=b/',
+            '--no-renames',
+            from,
+            to,
+            '--',
+            ...shown,
+          ])
         : '';
       return hidden.length ? `${body}\n# Changed but not shown: ${hidden.join(', ')}\n` : body;
     },

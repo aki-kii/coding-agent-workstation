@@ -58,7 +58,7 @@ Integration test stacks must not set physical names, and must set `RemovalPolicy
 
 ## Pull requests
 
-Open pull requests through the `review-pr` skill. It runs reviewer subagents (`general`, `cdk`, `security`, `script`) in a loop driven by `.claude/review/review.mjs`, which picks the reviewers from the changed paths and lines and decides when the loop ends. A PreToolUse hook blocks `gh pr create` (and its alias `gh pr new`) until the review has passed and the reviewed files are committed and pushed to `origin/<branch>`.
+Open pull requests through the `review-pr` skill. It runs reviewer subagents (`general`, `cdk`, `security`, `script`) in a loop driven by `.claude/review/review.mjs`, which picks the reviewers from the changed paths and lines and decides when the loop ends. A PreToolUse hook blocks `gh pr create` (and its alias `gh pr new`, with flags anywhere in between) until the review has passed and the reviewed files are committed and pushed to `origin/<branch>`.
 
 The hook's `if` rules let Claude Code's own command parser decide which Bash calls reach the gate, so chained commands, `VAR=value` prefixes and wrappers such as `timeout` are covered. It is a guardrail against skipping the review by accident, not a security boundary: `/usr/bin/gh pr create`, `bash -c '...'` and `gh api` calls that create a pull request are not caught.
 

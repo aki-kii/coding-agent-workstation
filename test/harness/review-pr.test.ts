@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vite-plus/test';
@@ -57,7 +57,11 @@ function write(file: string, content: string): void {
 }
 
 function run(...args: string[]): { status: number; stdout: string; stderr: string } {
-  const r = spawnSync('node', [SCRIPT, ...args], { cwd: repo, encoding: 'utf8' });
+  return runIn(repo, ...args);
+}
+
+function runIn(cwd: string, ...args: string[]): { status: number; stdout: string; stderr: string } {
+  const r = spawnSync('node', [SCRIPT, ...args], { cwd, encoding: 'utf8' });
   return { status: r.status ?? 1, stdout: r.stdout, stderr: r.stderr };
 }
 
@@ -349,9 +353,47 @@ describe('gate', () => {
     expect(gate()).toBe(2);
     expect(gate('gh pr create', tmpdir())).toBe(2);
   });
+
+  test('the hook command blocks when the gate cannot even start', () => {
+    const settings = JSON.parse(
+      readFileSync(resolve(__dirname, '../../.claude/settings.json'), 'utf8'),
+    ) as { hooks: { PreToolUse: { hooks: { command: string }[] }[] } };
+    const commands = settings.hooks.PreToolUse.flatMap((h) => h.hooks.map((x) => x.command));
+    const gates = commands.filter((c) => c.includes('review.mjs'));
+
+    expect(gates).toHaveLength(2);
+    for (const command of gates) {
+      const r = spawnSync('sh', ['-c', command], {
+        input: '{}',
+        env: { ...process.env, CLAUDE_PROJECT_DIR: join(tmpdir(), 'no-such-project') },
+      });
+      expect(r.status, command).toBe(2);
+    }
+  });
 });
 
 describe('diffs', () => {
+  test('reviews the same files when run from a subdirectory', () => {
+    write('src/a.ts', "new iam.Role(this, 'Role');\n");
+
+    const r = runIn(join(repo, 'src'), 'start', '--base', 'main');
+
+    expect(r.status).toBe(0);
+    const plan = JSON.parse(r.stdout) as Result;
+    expect(plan.reviewers!.map((x) => x.reviewer)).toEqual(['general', 'cdk', 'security']);
+    expect(readFileSync(roundFile(1, 'cdk.diff'), 'utf8')).toContain('iam.Role');
+  });
+
+  test('user diff settings do not change reviewer selection', () => {
+    git('config', 'diff.noprefix', 'true');
+    git('config', 'color.diff', 'always');
+    write('src/a.ts', "new iam.Role(this, 'Role');\n");
+
+    const plan = ok('start', '--base', 'main');
+
+    expect(plan.reviewers!.map((x) => x.reviewer)).toContain('security');
+  });
+
   test('keeps non-ASCII paths and leaves the state directory out of the snapshot', () => {
     write('docs/日本語.md', 'x\n');
 
@@ -401,6 +443,17 @@ describe('diffs', () => {
 });
 
 describe('validation', () => {
+  test('rejects null entries with a message instead of crashing', () => {
+    write('README.md', 'changed\n');
+    ok('start', '--base', 'main');
+    review(1, 'general', { replies: [], findings: [null] });
+
+    const r = run('judge');
+
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/every reply and finding must be an object/);
+  });
+
   test('rejects reviewer output that skips a carried finding or uses an unknown category', () => {
     write('README.md', 'changed\n');
     ok('start', '--base', 'main');
