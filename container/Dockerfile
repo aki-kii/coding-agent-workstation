@@ -11,8 +11,9 @@ RUN groupadd -g $WORKSTATION_GID agentcore-runtime-user \
 
 COPY server.mjs /opt/workstation/server.mjs
 
+# /mnt/workspace is WORKSPACE_MOUNT_PATH in src/workstation.ts; the volume is mounted there.
 ENV HOME=/mnt/workspace/home
 # A non-numeric USER breaks the overlay mount on images with many layers.
-USER 1001:65536
+USER $WORKSTATION_UID:$WORKSTATION_GID
 EXPOSE 8080
 CMD ["node", "/opt/workstation/server.mjs"]

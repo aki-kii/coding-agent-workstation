@@ -7,7 +7,13 @@ const idlePaddingSeconds = Number(process.env.WORKSTATION_IDLE_PADDING_SECONDS ?
 let lastActivity = Date.now();
 
 const server = createServer((req, res) => {
-  const url = new URL(req.url ?? '/', 'http://localhost');
+  let url;
+  try {
+    url = new URL(req.url ?? '/', 'http://localhost');
+  } catch {
+    res.writeHead(400).end();
+    return;
+  }
 
   if (url.pathname === '/ping') {
     const idleFor = (Date.now() - lastActivity) / 1000;

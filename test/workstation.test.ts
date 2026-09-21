@@ -1,4 +1,4 @@
-import { App, Duration, Stack, Tags } from 'aws-cdk-lib';
+import { App, Duration, Stack } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -31,40 +31,31 @@ test('idleTimeout below the runtime idle timeout is rejected', () => {
         vpc: vpc(testStack),
         idleTimeout: Duration.minutes(4),
       }),
-  ).toThrow(/idleTimeout must be at least 5 minutes/);
+  ).toThrow(/idleTimeout must be at least 300 seconds/);
 });
 
-test('tags reach the instances through propagatedTags', () => {
+test('idleTimeout is the total, and the container gets what is left after the runtime timeout', () => {
   const testStack = stack();
-  const workstation = new Workstation(testStack, 'Workstation', { vpc: vpc(testStack) });
-  Tags.of(workstation).add('Owner', 'platform');
-
-  const capacityProvider = Template.fromStack(testStack).findResources(
-    'AWS::BedrockAgentCore::CapacityProvider',
-  );
-  const launchParameters =
-    Object.values(capacityProvider)[0].Properties.ComputeConfiguration.Ec2Configuration
-      .LaunchTemplateSource.LaunchParameters;
-
-  expect(launchParameters.PropagatedTags).toEqual({ Owner: 'platform' });
-});
-
-test('propagateTags false leaves the instances untagged', () => {
-  const testStack = stack();
-  const workstation = new Workstation(testStack, 'Workstation', {
+  new Workstation(testStack, 'Workstation', {
     vpc: vpc(testStack),
-    propagateTags: false,
+    idleTimeout: Duration.hours(2),
   });
-  Tags.of(workstation).add('Owner', 'platform');
 
-  const capacityProvider = Template.fromStack(testStack).findResources(
-    'AWS::BedrockAgentCore::CapacityProvider',
-  );
-  const launchParameters =
-    Object.values(capacityProvider)[0].Properties.ComputeConfiguration.Ec2Configuration
-      .LaunchTemplateSource.LaunchParameters;
+  Template.fromStack(testStack).hasResourceProperties('AWS::BedrockAgentCore::Runtime', {
+    EnvironmentVariables: { WORKSTATION_IDLE_PADDING_SECONDS: '6900' },
+  });
+});
 
-  expect(launchParameters.PropagatedTags).toBeUndefined();
+test('maxSessionLifetime beyond the instance cap is rejected', () => {
+  const testStack = stack();
+
+  expect(
+    () =>
+      new Workstation(testStack, 'Workstation', {
+        vpc: vpc(testStack),
+        maxSessionLifetime: Duration.days(30),
+      }),
+  ).toThrow(/maxSessionLifetime must be at most 1209600 seconds/);
 });
 
 test('grantConnect covers the HTTP and WebSocket invoke actions', () => {

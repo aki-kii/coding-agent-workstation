@@ -2,7 +2,7 @@
 
 AWS CDK constructs that provision a **cloud-hosted workstation for a coding agent** on Amazon Bedrock AgentCore — a single long-lived box you wake up when you want to work, that puts itself back to sleep when you stop.
 
-> **Status: design phase.** This repository currently contains only the build scaffolding. No construct has been implemented yet; `src/index.ts` holds a placeholder that exists to keep the build green.
+> **Status: early.** `Workstation` and `WorkstationCapacityProvider` are implemented and build, but the image they deploy is a placeholder that answers `/ping` and `/invocations` only. The image's contract is being designed in #32, and how a user opens a terminal in it in #31.
 
 ## Background
 

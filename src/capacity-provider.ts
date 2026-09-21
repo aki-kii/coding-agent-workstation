@@ -1,4 +1,4 @@
-import { CfnTag, Duration, Lazy, Names, Stack } from 'aws-cdk-lib';
+import { Duration, Names, Stack } from 'aws-cdk-lib';
 import { CfnCapacityProvider } from 'aws-cdk-lib/aws-bedrockagentcore';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -18,6 +18,9 @@ const DEFAULT_WORKSPACE_SIZE_GIB = 20;
 export interface WorkstationCapacityProviderProps {
   /**
    * The VPC the workstation instances run in.
+   *
+   * **Note**: changing this replaces the capacity provider, which deletes every session's
+   * persistent volume with it.
    */
   readonly vpc: ec2.IVpc;
 
@@ -27,12 +30,18 @@ export interface WorkstationCapacityProviderProps {
    * The instances need to reach the internet to pull the container image and to talk to the
    * coding agent's API.
    *
+   * **Note**: changing this replaces the capacity provider, which deletes every session's
+   * persistent volume with it.
+   *
    * @default - the VPC's public subnets
    */
   readonly vpcSubnets?: ec2.SubnetSelection;
 
   /**
    * The security groups for the instances.
+   *
+   * **Note**: changing this replaces the capacity provider, which deletes every session's
+   * persistent volume with it. Changing the rules of a security group does not.
    *
    * @default - one security group that allows all outbound traffic
    */
@@ -85,20 +94,12 @@ export interface WorkstationCapacityProviderProps {
    *
    * When you pass one, the construct adds nothing to it.
    *
+   * **Note**: changing this replaces the capacity provider, which deletes every session's
+   * persistent volume with it.
+   *
    * @default - an instance profile is created with `CloudWatchAgentServerPolicy`
    */
   readonly instanceProfile?: iam.IInstanceProfile;
-
-  /**
-   * Whether to copy the tags applied to this construct onto the instances, volumes and network
-   * interfaces AgentCore creates for each session.
-   *
-   * Tags on the capacity provider itself do not reach those resources, so this is what makes
-   * cost allocation by tag work for the EC2 and EBS spend.
-   *
-   * @default true
-   */
-  readonly propagateTags?: boolean;
 }
 
 /**
@@ -112,6 +113,11 @@ export interface WorkstationCapacityProviderProps {
  * that ran on it.
  */
 export class WorkstationCapacityProvider extends Construct {
+  /**
+   * The longest an instance may run, which caps a runtime's own maximum session lifetime.
+   */
+  public static readonly MAX_LIFETIME = MAX_INSTANCE_LIFETIME;
+
   /**
    * The ARN of the capacity provider.
    */
@@ -146,8 +152,8 @@ export class WorkstationCapacityProvider extends Construct {
       props.vpcSubnets ?? { subnetType: ec2.SubnetType.PUBLIC },
     );
 
-    const operatorRole = props.operatorRole ?? this.createOperatorRole();
     const instanceProfile = props.instanceProfile ?? this.createInstanceProfile();
+    const operatorRole = props.operatorRole ?? this.createOperatorRole(instanceProfile);
 
     const capacityProvider = new CfnCapacityProvider(this, 'Resource', {
       name: Names.uniqueResourceName(this, {
@@ -166,10 +172,6 @@ export class WorkstationCapacityProvider extends Construct {
                 allowedInstanceTypes: props.instanceTypes ?? DEFAULT_INSTANCE_TYPES,
               },
               instanceProfileArn: instanceProfile.instanceProfileArn,
-              propagatedTags:
-                props.propagateTags === false
-                  ? undefined
-                  : Lazy.any({ produce: () => this.renderPropagatedTags(capacityProvider) }),
             },
           },
           vpcConfiguration: {
@@ -203,14 +205,6 @@ export class WorkstationCapacityProvider extends Construct {
     this.capacityProviderId = capacityProvider.attrCapacityProviderId;
   }
 
-  private renderPropagatedTags(
-    capacityProvider: CfnCapacityProvider,
-  ): Record<string, string> | undefined {
-    const tags = capacityProvider.cdkTagManager.renderTags() as CfnTag[] | undefined;
-    if (!tags || tags.length === 0) return undefined;
-    return Object.fromEntries(tags.map((tag) => [tag.key, tag.value]));
-  }
-
   private createInstanceProfile(): iam.IInstanceProfile {
     const role = new iam.Role(this, 'InstanceRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -221,7 +215,7 @@ export class WorkstationCapacityProvider extends Construct {
 
   // The actions AgentCore needs to build a capacity provider out of a launch template and an
   // Auto Scaling group. Narrowing them is tracked in #19.
-  private createOperatorRole(): iam.IRole {
+  private createOperatorRole(instanceProfile: iam.IInstanceProfile): iam.IRole {
     const stack = Stack.of(this);
     const role = new iam.Role(this, 'OperatorRole', {
       assumedBy: new iam.ServicePrincipal('bedrock-agentcore.amazonaws.com', {
@@ -290,11 +284,14 @@ export class WorkstationCapacityProvider extends Construct {
         },
       }),
     );
+    // Only the instance profile's own role. A passed-in profile may not carry its role, and then
+    // the caller has to narrow this themselves.
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['iam:PassRole'],
         resources: [
-          stack.formatArn({ service: 'iam', region: '', resource: 'role', resourceName: '*' }),
+          instanceProfile.role?.roleArn ??
+            stack.formatArn({ service: 'iam', region: '', resource: 'role', resourceName: '*' }),
         ],
         conditions: {
           StringEquals: {

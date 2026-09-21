@@ -588,15 +588,9 @@ exports[`default workstation 1`] = `
               },
               "Effect": "Allow",
               "Resource": {
-                "Fn::Join": [
-                  "",
-                  [
-                    "arn:",
-                    {
-                      "Ref": "AWS::Partition",
-                    },
-                    ":iam::123456789012:role/*",
-                  ],
+                "Fn::GetAtt": [
+                  "WorkstationCapacityInstanceRoleA4485E48",
+                  "Arn",
                 ],
               },
             },
@@ -633,7 +627,7 @@ exports[`default workstation 1`] = `
         "AgentRuntimeArtifact": {
           "ContainerConfiguration": {
             "ContainerUri": {
-              "Fn::Sub": "123456789012.dkr.ecr.us-east-1.\${AWS::URLSuffix}/cdk-hnb659fds-container-assets-123456789012-us-east-1:456f4d601c2523c35c9041eb78f1cf3e1db5993836d1dac2a19ee9811f5adb92",
+              "Fn::Sub": "123456789012.dkr.ecr.us-east-1.\${AWS::URLSuffix}/cdk-hnb659fds-container-assets-123456789012-us-east-1:c5232d88eb224f5167e3ffc4e12b0b5f15d9fece247b2fd41865a605a8ccd598",
             },
           },
         },
@@ -727,15 +721,6 @@ exports[`default workstation 1`] = `
           "Statement": [
             {
               "Action": [
-                "ecr:BatchGetImage",
-                "ecr:GetDownloadUrlForLayer",
-                "ecr:GetAuthorizationToken",
-              ],
-              "Effect": "Allow",
-              "Resource": "*",
-            },
-            {
-              "Action": [
                 "logs:CreateLogGroup",
                 "logs:CreateLogStream",
                 "logs:PutLogEvents",
@@ -786,6 +771,31 @@ exports[`default workstation 1`] = `
                   "cloudwatch:namespace": "bedrock-agentcore",
                 },
               },
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":ecr:us-east-1:123456789012:repository/cdk-hnb659fds-container-assets-123456789012-us-east-1",
+                  ],
+                ],
+              },
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
               "Effect": "Allow",
               "Resource": "*",
             },

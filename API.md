@@ -11,7 +11,7 @@ launches an EC2 instance with a workspace volume that survives the instance bein
 invoking the runtime again with the same session ID comes back to the same workspace.
 
 Sessions are not created by this construct. A caller starts one by invoking the runtime with a
-session ID of its own choosing, over HTTP or over the terminal on `/ws`.
+session ID of its own choosing.
 
 #### Initializers <a name="Initializers" id="coding-agent-workstation.Workstation.Initializer"></a>
 
@@ -53,7 +53,7 @@ new Workstation(scope: Construct, id: string, props: WorkstationProps)
 | --- | --- |
 | <code><a href="#coding-agent-workstation.Workstation.toString">toString</a></code> | Returns a string representation of this construct. |
 | <code><a href="#coding-agent-workstation.Workstation.with">with</a></code> | Applies one or more mixins to this construct. |
-| <code><a href="#coding-agent-workstation.Workstation.grantConnect">grantConnect</a></code> | Allow the given principal to start a session and to open the terminal on `/ws`. |
+| <code><a href="#coding-agent-workstation.Workstation.grantConnect">grantConnect</a></code> | Allow the given principal to invoke the runtime, over HTTP and over a WebSocket stream. |
 
 ---
 
@@ -92,7 +92,9 @@ The mixins to apply.
 public grantConnect(grantee: IGrantable): Grant
 ```
 
-Allow the given principal to start a session and to open the terminal on `/ws`.
+Allow the given principal to invoke the runtime, over HTTP and over a WebSocket stream.
+
+Invoking with a session ID that has no session yet starts one.
 
 ###### `grantee`<sup>Required</sup> <a name="grantee" id="coding-agent-workstation.Workstation.grantConnect.parameter.grantee"></a>
 
@@ -410,6 +412,25 @@ The name of the volume to mount in a runtime's filesystem configuration.
 
 ---
 
+#### Constants <a name="Constants" id="Constants"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#coding-agent-workstation.WorkstationCapacityProvider.property.MAX_LIFETIME">MAX_LIFETIME</a></code> | <code>aws-cdk-lib.Duration</code> | The longest an instance may run, which caps a runtime's own maximum session lifetime. |
+
+---
+
+##### `MAX_LIFETIME`<sup>Required</sup> <a name="MAX_LIFETIME" id="coding-agent-workstation.WorkstationCapacityProvider.property.MAX_LIFETIME"></a>
+
+```typescript
+public readonly MAX_LIFETIME: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+
+The longest an instance may run, which caps a runtime's own maximum session lifetime.
+
+---
 
 ## Structs <a name="Structs" id="Structs"></a>
 
@@ -433,7 +454,6 @@ const workstationCapacityProviderProps: WorkstationCapacityProviderProps = { ...
 | <code><a href="#coding-agent-workstation.WorkstationCapacityProviderProps.property.instanceProfile">instanceProfile</a></code> | <code>aws-cdk-lib.aws_iam.IInstanceProfile</code> | The instance profile attached to the instances. |
 | <code><a href="#coding-agent-workstation.WorkstationCapacityProviderProps.property.instanceTypes">instanceTypes</a></code> | <code>string[]</code> | The instance types AgentCore may launch, as Amazon EC2 instance type names. |
 | <code><a href="#coding-agent-workstation.WorkstationCapacityProviderProps.property.operatorRole">operatorRole</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The role AgentCore assumes to provision and operate the instances. |
-| <code><a href="#coding-agent-workstation.WorkstationCapacityProviderProps.property.propagateTags">propagateTags</a></code> | <code>boolean</code> | Whether to copy the tags applied to this construct onto the instances, volumes and network interfaces AgentCore creates for each session. |
 | <code><a href="#coding-agent-workstation.WorkstationCapacityProviderProps.property.securityGroups">securityGroups</a></code> | <code>aws-cdk-lib.aws_ec2.ISecurityGroup[]</code> | The security groups for the instances. |
 | <code><a href="#coding-agent-workstation.WorkstationCapacityProviderProps.property.vpcSubnets">vpcSubnets</a></code> | <code>aws-cdk-lib.aws_ec2.SubnetSelection</code> | Which subnets of the VPC the instances run in. |
 | <code><a href="#coding-agent-workstation.WorkstationCapacityProviderProps.property.workspaceSizeGiB">workspaceSizeGiB</a></code> | <code>number</code> | The size of each session's workspace volume, in GiB. |
@@ -449,6 +469,9 @@ public readonly vpc: IVpc;
 - *Type:* aws-cdk-lib.aws_ec2.IVpc
 
 The VPC the workstation instances run in.
+
+**Note**: changing this replaces the capacity provider, which deletes every session's
+persistent volume with it.
 
 ---
 
@@ -467,6 +490,9 @@ AgentCore uses it to collect system logs from the instance. It does not give the
 permissions; the workstation's execution role does that.
 
 When you pass one, the construct adds nothing to it.
+
+**Note**: changing this replaces the capacity provider, which deletes every session's
+persistent volume with it.
 
 ---
 
@@ -508,22 +534,6 @@ persistent volume with it.
 
 ---
 
-##### `propagateTags`<sup>Optional</sup> <a name="propagateTags" id="coding-agent-workstation.WorkstationCapacityProviderProps.property.propagateTags"></a>
-
-```typescript
-public readonly propagateTags: boolean;
-```
-
-- *Type:* boolean
-- *Default:* true
-
-Whether to copy the tags applied to this construct onto the instances, volumes and network interfaces AgentCore creates for each session.
-
-Tags on the capacity provider itself do not reach those resources, so this is what makes
-cost allocation by tag work for the EC2 and EBS spend.
-
----
-
 ##### `securityGroups`<sup>Optional</sup> <a name="securityGroups" id="coding-agent-workstation.WorkstationCapacityProviderProps.property.securityGroups"></a>
 
 ```typescript
@@ -534,6 +544,9 @@ public readonly securityGroups: ISecurityGroup[];
 - *Default:* one security group that allows all outbound traffic
 
 The security groups for the instances.
+
+**Note**: changing this replaces the capacity provider, which deletes every session's
+persistent volume with it. Changing the rules of a security group does not.
 
 ---
 
@@ -550,6 +563,9 @@ Which subnets of the VPC the instances run in.
 
 The instances need to reach the internet to pull the container image and to talk to the
 coding agent's API.
+
+**Note**: changing this replaces the capacity provider, which deletes every session's
+persistent volume with it.
 
 ---
 
@@ -592,7 +608,6 @@ const workstationProps: WorkstationProps = { ... }
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.instanceProfile">instanceProfile</a></code> | <code>aws-cdk-lib.aws_iam.IInstanceProfile</code> | The instance profile attached to the instances. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.instanceTypes">instanceTypes</a></code> | <code>string[]</code> | The instance types AgentCore may launch, as Amazon EC2 instance type names. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.operatorRole">operatorRole</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The role AgentCore assumes to provision and operate the instances. |
-| <code><a href="#coding-agent-workstation.WorkstationProps.property.propagateTags">propagateTags</a></code> | <code>boolean</code> | Whether to copy the tags applied to this construct onto the instances, volumes and network interfaces AgentCore creates for each session. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.securityGroups">securityGroups</a></code> | <code>aws-cdk-lib.aws_ec2.ISecurityGroup[]</code> | The security groups for the instances. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.vpcSubnets">vpcSubnets</a></code> | <code>aws-cdk-lib.aws_ec2.SubnetSelection</code> | Which subnets of the VPC the instances run in. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.workspaceSizeGiB">workspaceSizeGiB</a></code> | <code>number</code> | The size of each session's workspace volume, in GiB. |
@@ -612,6 +627,9 @@ public readonly vpc: IVpc;
 
 The VPC the workstation instances run in.
 
+**Note**: changing this replaces the capacity provider, which deletes every session's
+persistent volume with it.
+
 ---
 
 ##### `instanceProfile`<sup>Optional</sup> <a name="instanceProfile" id="coding-agent-workstation.WorkstationProps.property.instanceProfile"></a>
@@ -629,6 +647,9 @@ AgentCore uses it to collect system logs from the instance. It does not give the
 permissions; the workstation's execution role does that.
 
 When you pass one, the construct adds nothing to it.
+
+**Note**: changing this replaces the capacity provider, which deletes every session's
+persistent volume with it.
 
 ---
 
@@ -670,22 +691,6 @@ persistent volume with it.
 
 ---
 
-##### `propagateTags`<sup>Optional</sup> <a name="propagateTags" id="coding-agent-workstation.WorkstationProps.property.propagateTags"></a>
-
-```typescript
-public readonly propagateTags: boolean;
-```
-
-- *Type:* boolean
-- *Default:* true
-
-Whether to copy the tags applied to this construct onto the instances, volumes and network interfaces AgentCore creates for each session.
-
-Tags on the capacity provider itself do not reach those resources, so this is what makes
-cost allocation by tag work for the EC2 and EBS spend.
-
----
-
 ##### `securityGroups`<sup>Optional</sup> <a name="securityGroups" id="coding-agent-workstation.WorkstationProps.property.securityGroups"></a>
 
 ```typescript
@@ -696,6 +701,9 @@ public readonly securityGroups: ISecurityGroup[];
 - *Default:* one security group that allows all outbound traffic
 
 The security groups for the instances.
+
+**Note**: changing this replaces the capacity provider, which deletes every session's
+persistent volume with it. Changing the rules of a security group does not.
 
 ---
 
@@ -712,6 +720,9 @@ Which subnets of the VPC the instances run in.
 
 The instances need to reach the internet to pull the container image and to talk to the
 coding agent's API.
+
+**Note**: changing this replaces the capacity provider, which deletes every session's
+persistent volume with it.
 
 ---
 
@@ -762,8 +773,9 @@ public readonly idleTimeout: Duration;
 
 How long a session stays up after the last activity.
 
-The workstation reports itself busy until this much time has passed without anyone using it,
-and AgentCore stops the container five minutes later. It must be at least five minutes.
+This is the whole idle time. The workstation reports itself busy for all but the last five
+minutes of it, and AgentCore's own idle timeout covers the rest. It must be at least five
+minutes.
 
 ---
 

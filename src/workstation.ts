@@ -6,6 +6,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { WorkstationCapacityProvider, WorkstationCapacityProviderProps } from './capacity-provider';
 
+// container/Dockerfile puts HOME under this path.
 const WORKSPACE_MOUNT_PATH = '/mnt/workspace';
 const IDLE_RUNTIME_SESSION_TIMEOUT = Duration.minutes(5);
 const DEFAULT_IDLE_TIMEOUT = Duration.minutes(10);
@@ -30,8 +31,9 @@ export interface WorkstationProps extends WorkstationCapacityProviderProps {
   /**
    * How long a session stays up after the last activity.
    *
-   * The workstation reports itself busy until this much time has passed without anyone using it,
-   * and AgentCore stops the container five minutes later. It must be at least five minutes.
+   * This is the whole idle time. The workstation reports itself busy for all but the last five
+   * minutes of it, and AgentCore's own idle timeout covers the rest. It must be at least five
+   * minutes.
    *
    * @default Duration.minutes(10)
    */
@@ -55,7 +57,7 @@ export interface WorkstationProps extends WorkstationCapacityProviderProps {
  * invoking the runtime again with the same session ID comes back to the same workspace.
  *
  * Sessions are not created by this construct. A caller starts one by invoking the runtime with a
- * session ID of its own choosing, over HTTP or over the terminal on `/ws`.
+ * session ID of its own choosing.
  */
 export class Workstation extends Construct {
   /**
@@ -84,7 +86,14 @@ export class Workstation extends Construct {
     const idleTimeout = props.idleTimeout ?? DEFAULT_IDLE_TIMEOUT;
     if (idleTimeout.toSeconds() < IDLE_RUNTIME_SESSION_TIMEOUT.toSeconds()) {
       throw new Error(
-        `idleTimeout must be at least ${IDLE_RUNTIME_SESSION_TIMEOUT.toMinutes()} minutes, got ${idleTimeout.toMinutes()}`,
+        `idleTimeout must be at least ${IDLE_RUNTIME_SESSION_TIMEOUT.toSeconds()} seconds, got ${idleTimeout.toSeconds()}`,
+      );
+    }
+
+    const maxSessionLifetime = props.maxSessionLifetime ?? DEFAULT_MAX_SESSION_LIFETIME;
+    if (maxSessionLifetime.toSeconds() > WorkstationCapacityProvider.MAX_LIFETIME.toSeconds()) {
+      throw new Error(
+        `maxSessionLifetime must be at most ${WorkstationCapacityProvider.MAX_LIFETIME.toSeconds()} seconds, got ${maxSessionLifetime.toSeconds()}`,
       );
     }
 
@@ -96,6 +105,7 @@ export class Workstation extends Construct {
       directory: path.join(__dirname, '..', 'container'),
       platform: Platform.LINUX_ARM64,
     });
+    if (!props.executionRole) image.repository.grantPull(this.executionRole);
 
     const runtime = new CfnRuntime(this, 'Resource', {
       agentRuntimeName: Names.uniqueResourceName(this, {
@@ -119,7 +129,7 @@ export class Workstation extends Construct {
       ],
       lifecycleConfiguration: {
         idleRuntimeSessionTimeout: IDLE_RUNTIME_SESSION_TIMEOUT.toSeconds(),
-        maxLifetime: (props.maxSessionLifetime ?? DEFAULT_MAX_SESSION_LIFETIME).toSeconds(),
+        maxLifetime: maxSessionLifetime.toSeconds(),
       },
       // The container reports itself busy for this long after the last activity, and AgentCore's
       // own idle timeout runs out five minutes after that.
@@ -134,7 +144,9 @@ export class Workstation extends Construct {
   }
 
   /**
-   * Allow the given principal to start a session and to open the terminal on `/ws`.
+   * Allow the given principal to invoke the runtime, over HTTP and over a WebSocket stream.
+   *
+   * Invoking with a session ID that has no session yet starts one.
    */
   public grantConnect(grantee: iam.IGrantable): iam.Grant {
     return iam.Grant.addToPrincipal({
@@ -161,13 +173,8 @@ export class Workstation extends Construct {
       managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('ReadOnlyAccess')],
     });
 
-    // Without these the runtime cannot pull its image or write its logs, and never starts.
-    role.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        actions: ['ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer', 'ecr:GetAuthorizationToken'],
-        resources: ['*'],
-      }),
-    );
+    // Without these the runtime cannot write its logs. Pulling the image is granted on the
+    // asset's repository once it exists.
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: [
