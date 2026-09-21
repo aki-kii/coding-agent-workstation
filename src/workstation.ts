@@ -144,17 +144,14 @@ export class Workstation extends Construct {
   }
 
   /**
-   * Allow the given principal to invoke the runtime, over HTTP and over a WebSocket stream.
+   * Allow the given principal to invoke the runtime.
    *
    * Invoking with a session ID that has no session yet starts one.
    */
-  public grantConnect(grantee: iam.IGrantable): iam.Grant {
+  public grantInvoke(grantee: iam.IGrantable): iam.Grant {
     return iam.Grant.addToPrincipal({
       grantee,
-      actions: [
-        'bedrock-agentcore:InvokeAgentRuntime',
-        'bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream',
-      ],
+      actions: ['bedrock-agentcore:InvokeAgentRuntime'],
       resourceArns: [this.runtimeArn, `${this.runtimeArn}/*`],
     });
   }

@@ -153,7 +153,15 @@ export class WorkstationCapacityProvider extends Construct {
     );
 
     const instanceProfile = props.instanceProfile ?? this.createInstanceProfile();
-    const operatorRole = props.operatorRole ?? this.createOperatorRole(instanceProfile);
+    // An imported instance profile does not carry its role, and the operator role this construct
+    // creates has to name it to keep iam:PassRole off every other role in the account.
+    if (!props.operatorRole && !instanceProfile.role) {
+      throw new Error(
+        'instanceProfile was imported without its role, so the operator role cannot be created for it. Pass operatorRole as well, or an instance profile that carries its role.',
+      );
+    }
+    const operatorRole =
+      props.operatorRole ?? this.createOperatorRole(instanceProfile.role as iam.IRole);
 
     const capacityProvider = new CfnCapacityProvider(this, 'Resource', {
       name: Names.uniqueResourceName(this, {
@@ -215,7 +223,7 @@ export class WorkstationCapacityProvider extends Construct {
 
   // The actions AgentCore needs to build a capacity provider out of a launch template and an
   // Auto Scaling group. Narrowing them is tracked in #19.
-  private createOperatorRole(instanceProfile: iam.IInstanceProfile): iam.IRole {
+  private createOperatorRole(instanceRole: iam.IRole): iam.IRole {
     const stack = Stack.of(this);
     const role = new iam.Role(this, 'OperatorRole', {
       assumedBy: new iam.ServicePrincipal('bedrock-agentcore.amazonaws.com', {
@@ -284,15 +292,11 @@ export class WorkstationCapacityProvider extends Construct {
         },
       }),
     );
-    // Only the instance profile's own role. A passed-in profile may not carry its role, and then
-    // the caller has to narrow this themselves.
+    // Only the instance profile's own role, so that this role cannot pass any other role to EC2.
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['iam:PassRole'],
-        resources: [
-          instanceProfile.role?.roleArn ??
-            stack.formatArn({ service: 'iam', region: '', resource: 'role', resourceName: '*' }),
-        ],
+        resources: [instanceRole.roleArn],
         conditions: {
           StringEquals: {
             'iam:PassedToService': ['ec2.amazonaws.com', 'autoscaling.amazonaws.com'],

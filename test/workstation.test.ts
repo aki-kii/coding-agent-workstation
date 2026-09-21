@@ -58,26 +58,39 @@ test('maxSessionLifetime beyond the instance cap is rejected', () => {
   ).toThrow(/maxSessionLifetime must be at most 1209600 seconds/);
 });
 
-test('grantConnect covers the HTTP and WebSocket invoke actions', () => {
+test('grantInvoke allows invoking the runtime', () => {
   const testStack = stack();
   const workstation = new Workstation(testStack, 'Workstation', { vpc: vpc(testStack) });
   const role = new iam.Role(testStack, 'Caller', {
     assumedBy: new iam.AccountRootPrincipal(),
   });
 
-  workstation.grantConnect(role);
+  workstation.grantInvoke(role);
 
   Template.fromStack(testStack).hasResourceProperties('AWS::IAM::Policy', {
     PolicyDocument: {
       Statement: [
         {
-          Action: [
-            'bedrock-agentcore:InvokeAgentRuntime',
-            'bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream',
-          ],
+          Action: 'bedrock-agentcore:InvokeAgentRuntime',
           Effect: 'Allow',
         },
       ],
     },
   });
+});
+
+test('an imported instance profile without its role needs an operator role', () => {
+  const testStack = stack();
+
+  expect(
+    () =>
+      new Workstation(testStack, 'Workstation', {
+        vpc: vpc(testStack),
+        instanceProfile: iam.InstanceProfile.fromInstanceProfileArn(
+          testStack,
+          'Imported',
+          'arn:aws:iam::123456789012:instance-profile/imported',
+        ),
+      }),
+  ).toThrow(/instanceProfile was imported without its role/);
 });

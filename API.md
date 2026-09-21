@@ -53,7 +53,7 @@ new Workstation(scope: Construct, id: string, props: WorkstationProps)
 | --- | --- |
 | <code><a href="#coding-agent-workstation.Workstation.toString">toString</a></code> | Returns a string representation of this construct. |
 | <code><a href="#coding-agent-workstation.Workstation.with">with</a></code> | Applies one or more mixins to this construct. |
-| <code><a href="#coding-agent-workstation.Workstation.grantConnect">grantConnect</a></code> | Allow the given principal to invoke the runtime, over HTTP and over a WebSocket stream. |
+| <code><a href="#coding-agent-workstation.Workstation.grantInvoke">grantInvoke</a></code> | Allow the given principal to invoke the runtime. |
 
 ---
 
@@ -86,17 +86,17 @@ The mixins to apply.
 
 ---
 
-##### `grantConnect` <a name="grantConnect" id="coding-agent-workstation.Workstation.grantConnect"></a>
+##### `grantInvoke` <a name="grantInvoke" id="coding-agent-workstation.Workstation.grantInvoke"></a>
 
 ```typescript
-public grantConnect(grantee: IGrantable): Grant
+public grantInvoke(grantee: IGrantable): Grant
 ```
 
-Allow the given principal to invoke the runtime, over HTTP and over a WebSocket stream.
+Allow the given principal to invoke the runtime.
 
 Invoking with a session ID that has no session yet starts one.
 
-###### `grantee`<sup>Required</sup> <a name="grantee" id="coding-agent-workstation.Workstation.grantConnect.parameter.grantee"></a>
+###### `grantee`<sup>Required</sup> <a name="grantee" id="coding-agent-workstation.Workstation.grantInvoke.parameter.grantee"></a>
 
 - *Type:* aws-cdk-lib.aws_iam.IGrantable
 
