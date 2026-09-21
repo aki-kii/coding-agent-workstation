@@ -10,7 +10,7 @@ const ROOT_VOLUME_FREE_SPACE_GIB = 8;
 const IDLE_INSTANCE_TIMEOUT = Duration.minutes(10);
 const MAX_INSTANCE_LIFETIME = Duration.days(14);
 const DEFAULT_INSTANCE_TYPES = ['m7g.large', 'm6g.large'];
-const DEFAULT_WORKSPACE_SIZE_GIB = 50;
+const DEFAULT_WORKSPACE_SIZE_GIB = 20;
 
 /**
  * Properties for a WorkstationCapacityProvider.
@@ -59,7 +59,7 @@ export interface WorkstationCapacityProviderProps {
    * **Note**: changing this replaces the capacity provider, which deletes every session's
    * persistent volume with it.
    *
-   * @default 50
+   * @default 20
    */
   readonly workspaceSizeGiB?: number;
 

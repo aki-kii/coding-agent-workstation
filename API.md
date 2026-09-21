@@ -560,7 +560,7 @@ public readonly workspaceSizeGiB: number;
 ```
 
 - *Type:* number
-- *Default:* 50
+- *Default:* 20
 
 The size of each session's workspace volume, in GiB.
 
@@ -722,7 +722,7 @@ public readonly workspaceSizeGiB: number;
 ```
 
 - *Type:* number
-- *Default:* 50
+- *Default:* 20
 
 The size of each session's workspace volume, in GiB.
 

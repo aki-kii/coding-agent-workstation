@@ -408,7 +408,7 @@ exports[`default workstation 1`] = `
                 "EbsConfiguration": {
                   "Encrypted": true,
                   "Name": "workspace",
-                  "SizeGiB": 50,
+                  "SizeGiB": 20,
                   "VolumeType": "gp3",
                 },
               },
