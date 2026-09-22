@@ -176,6 +176,7 @@ export class Workstation extends Construct {
       new iam.PolicyStatement({
         actions: [
           'logs:CreateLogGroup',
+          'logs:DescribeLogStreams',
           'logs:CreateLogStream',
           'logs:PutLogEvents',
           'logs:PutResourcePolicy',
@@ -191,6 +192,19 @@ export class Workstation extends Construct {
             service: 'logs',
             resource: 'log-group',
             resourceName: '/aws/bedrock-agentcore/runtimes/*:log-stream:*',
+            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+          }),
+        ],
+      }),
+    );
+    role.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['logs:DescribeLogGroups'],
+        resources: [
+          stack.formatArn({
+            service: 'logs',
+            resource: 'log-group',
+            resourceName: '*',
             arnFormat: ArnFormat.COLON_RESOURCE_NAME,
           }),
         ],

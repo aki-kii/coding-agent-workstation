@@ -722,6 +722,7 @@ exports[`default workstation 1`] = `
             {
               "Action": [
                 "logs:CreateLogGroup",
+                "logs:DescribeLogStreams",
                 "logs:CreateLogStream",
                 "logs:PutLogEvents",
                 "logs:PutResourcePolicy",
@@ -753,6 +754,22 @@ exports[`default workstation 1`] = `
                   ],
                 },
               ],
+            },
+            {
+              "Action": "logs:DescribeLogGroups",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":logs:us-east-1:123456789012:log-group:*",
+                  ],
+                ],
+              },
             },
             {
               "Action": [
