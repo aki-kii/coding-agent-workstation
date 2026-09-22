@@ -58,6 +58,10 @@ export interface WorkstationProps extends WorkstationCapacityProviderProps {
  *
  * Sessions are not created by this construct. A caller starts one by invoking the runtime with a
  * session ID of its own choosing.
+ *
+ * **Note**: the names of the runtime and the capacity provider are derived from the construct
+ * path, so moving or renaming this construct replaces both, and every session's workspace volume
+ * is deleted with the capacity provider.
  */
 export class Workstation extends Construct {
   /**

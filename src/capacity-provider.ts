@@ -110,7 +110,8 @@ export interface WorkstationCapacityProviderProps {
  *
  * **Note**: almost everything about a capacity provider is fixed at creation. Changing a property
  * that says so replaces it, and the replacement deletes the persistent volumes of every session
- * that ran on it.
+ * that ran on it. Its name is derived from the construct path, so moving or renaming this
+ * construct replaces it too.
  */
 export class WorkstationCapacityProvider extends Construct {
   /**

@@ -13,6 +13,10 @@ invoking the runtime again with the same session ID comes back to the same works
 Sessions are not created by this construct. A caller starts one by invoking the runtime with a
 session ID of its own choosing.
 
+**Note**: the names of the runtime and the capacity provider are derived from the construct
+path, so moving or renaming this construct replaces both, and every session's workspace volume
+is deleted with the capacity provider.
+
 #### Initializers <a name="Initializers" id="coding-agent-workstation.Workstation.Initializer"></a>
 
 ```typescript
@@ -226,7 +230,8 @@ runtime is one EC2 instance launched from this configuration, with its own works
 
 **Note**: almost everything about a capacity provider is fixed at creation. Changing a property
 that says so replaces it, and the replacement deletes the persistent volumes of every session
-that ran on it.
+that ran on it. Its name is derived from the construct path, so moving or renaming this
+construct replaces it too.
 
 #### Initializers <a name="Initializers" id="coding-agent-workstation.WorkstationCapacityProvider.Initializer"></a>
 
