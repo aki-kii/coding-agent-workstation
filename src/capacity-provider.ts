@@ -222,8 +222,9 @@ export class WorkstationCapacityProvider extends Construct {
     return new iam.InstanceProfile(this, 'InstanceProfile', { role });
   }
 
-  // The actions AgentCore needs to build a capacity provider out of a launch template and an
-  // Auto Scaling group. Narrowing them is tracked in #19.
+  // AgentCore builds the capacity provider out of a launch template and an Auto Scaling group.
+  // The AWS managed policy covers that, scoped to the resources AgentCore tags and manages (#19).
+  // It only lets the role pass AgentCore's default instance role, so passing ours is added below.
   private createOperatorRole(instanceRole: iam.IRole): iam.IRole {
     const stack = Stack.of(this);
     const role = new iam.Role(this, 'OperatorRole', {
@@ -238,46 +239,13 @@ export class WorkstationCapacityProvider extends Construct {
           },
         },
       }),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+          'BedrockAgentCoreRuntimeInstancesOperatorRolePolicy',
+        ),
+      ],
     });
 
-    role.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        actions: [
-          'ec2:CreateLaunchTemplate',
-          'ec2:CreateLaunchTemplateVersion',
-          'ec2:DeleteLaunchTemplate',
-          'ec2:CreateFleet',
-          'ec2:RunInstances',
-          'ec2:TerminateInstances',
-          'ec2:CreateTags',
-          'ec2:CreateVolume',
-          'ec2:AttachVolume',
-          'ec2:DetachVolume',
-          'ec2:DeleteVolume',
-          'ec2:CreateNetworkInterface',
-          'ec2:DeleteNetworkInterface',
-          'ec2:Describe*',
-        ],
-        resources: ['*'],
-      }),
-    );
-    role.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        actions: [
-          'autoscaling:CreateAutoScalingGroup',
-          'autoscaling:UpdateAutoScalingGroup',
-          'autoscaling:DeleteAutoScalingGroup',
-          'autoscaling:CreateOrUpdateTags',
-          'autoscaling:DeleteTags',
-          'autoscaling:PutLifecycleHook',
-          'autoscaling:DeleteLifecycleHook',
-          'autoscaling:CompleteLifecycleAction',
-          'autoscaling:SetDesiredCapacity',
-          'autoscaling:Describe*',
-        ],
-        resources: ['*'],
-      }),
-    );
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['iam:CreateServiceLinkedRole'],
