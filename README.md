@@ -2,7 +2,7 @@
 
 AWS CDK constructs that provision a **cloud-hosted workstation for a coding agent** on Amazon Bedrock AgentCore — a single long-lived box you wake up when you want to work, that puts itself back to sleep when you stop.
 
-> **Status: early.** `Workstation` and `WorkstationCapacityProvider` are implemented and build, but the image they deploy is a placeholder that answers `/ping` and `/invocations` only. The image's contract is being designed in #32, and how a user opens a terminal in it in #31.
+> **Status: early.** `Workstation` and `WorkstationCapacityProvider` are implemented and build. The bundled image has not been deployed and tried end to end yet.
 
 ## Background
 
@@ -17,6 +17,40 @@ Assembling that by hand means getting several non-obvious things right at the sa
 - A capacity provider that is effectively immutable after creation — changing it replaces it, and the replacement takes the persistent volume with it
 
 Those are the problems this library is meant to absorb.
+
+## Usage
+
+```ts
+import { Workstation } from 'coding-agent-workstation';
+
+const workstation = new Workstation(this, 'Workstation', {
+  vpc,
+  // Optional: runs at every session start, as the image user.
+  startupScript: path.join(__dirname, 'startup.sh'),
+});
+
+// The caller needs bedrock-agentcore:InvokeAgentRuntime on the runtime. The terminal also
+// needs bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream, which grantInvoke does not add.
+workstation.grantInvoke(callerRole);
+```
+
+### Starting a session
+
+Call `InvokeAgentRuntime` on `workstation.runtimeArn` with a `runtimeSessionId` of your choosing. The first call with a new ID starts an EC2 instance with a fresh workspace volume; later calls with the same ID resume the same workspace. The container answers `/invocations` with `{"status":"ready", ...}` once startup, including the startup script, has finished.
+
+The workstation reports itself busy while Claude Code is working (read from `claude agents --json`) and while a terminal is connected, and for the configured `idleTimeout` after both stop.
+
+### Startup script
+
+`startupScript` is a path to a local file. It is built into the image and runs at every session start as the image user, with `HOME` on the workspace volume; `/invocations` answers when it exits. Changing it rebuilds the image and updates the runtime in place, leaving the capacity provider and its volumes alone.
+
+Without a script the container starts Claude Code in Remote Control server mode (`claude remote-control`) in the background, for use from claude.ai/code or the mobile app. That needs a claude.ai sign-in, done once in the terminal.
+
+### Terminal
+
+The image serves its own terminal on `/ws`: an interactive login shell on a PTY, reached through `InvokeAgentRuntimeWithWebSocketStream` with the same session ID. AgentCore's built-in interactive shell (`InvokeAgentRuntimeCommandShell`) is not supported on capacity-provider runtimes (confirmed in the sandbox on 2026-10-05). Window resizing is not supported.
+
+TODO: a client for `/ws` is not included yet.
 
 ## Development
 
