@@ -519,6 +519,20 @@ exports[`default workstation 1`] = `
           ],
           "Version": "2012-10-17",
         },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/BedrockAgentCoreRuntimeInstancesOperatorRolePolicy",
+              ],
+            ],
+          },
+        ],
       },
       "Type": "AWS::IAM::Role",
     },
@@ -526,42 +540,6 @@ exports[`default workstation 1`] = `
       "Properties": {
         "PolicyDocument": {
           "Statement": [
-            {
-              "Action": [
-                "ec2:CreateLaunchTemplate",
-                "ec2:CreateLaunchTemplateVersion",
-                "ec2:DeleteLaunchTemplate",
-                "ec2:CreateFleet",
-                "ec2:RunInstances",
-                "ec2:TerminateInstances",
-                "ec2:CreateTags",
-                "ec2:CreateVolume",
-                "ec2:AttachVolume",
-                "ec2:DetachVolume",
-                "ec2:DeleteVolume",
-                "ec2:CreateNetworkInterface",
-                "ec2:DeleteNetworkInterface",
-                "ec2:Describe*",
-              ],
-              "Effect": "Allow",
-              "Resource": "*",
-            },
-            {
-              "Action": [
-                "autoscaling:CreateAutoScalingGroup",
-                "autoscaling:UpdateAutoScalingGroup",
-                "autoscaling:DeleteAutoScalingGroup",
-                "autoscaling:CreateOrUpdateTags",
-                "autoscaling:DeleteTags",
-                "autoscaling:PutLifecycleHook",
-                "autoscaling:DeleteLifecycleHook",
-                "autoscaling:CompleteLifecycleAction",
-                "autoscaling:SetDesiredCapacity",
-                "autoscaling:Describe*",
-              ],
-              "Effect": "Allow",
-              "Resource": "*",
-            },
             {
               "Action": "iam:CreateServiceLinkedRole",
               "Condition": {
