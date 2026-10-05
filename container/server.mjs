@@ -144,10 +144,12 @@ const server = createServer((req, res) => {
     lastBusy = Date.now();
     // Drain the body; nothing in it is used.
     req.resume();
-    startupDone.then(() => {
+    void startupDone.then(() => {
       lastBusy = Date.now();
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ready', startedAt: new Date(startedAt).toISOString(), home }));
+      res.end(
+        JSON.stringify({ status: 'ready', startedAt: new Date(startedAt).toISOString(), home }),
+      );
     });
     return;
   }
@@ -174,7 +176,8 @@ server.on('upgrade', (req, socket, head) => {
 
     const forward = (chunk) => {
       for (let i = 0; i < chunk.length; i += maxFrameBytes) {
-        if (ws.readyState === ws.OPEN) ws.send(chunk.subarray(i, i + maxFrameBytes), { binary: true });
+        if (ws.readyState === ws.OPEN)
+          ws.send(chunk.subarray(i, i + maxFrameBytes), { binary: true });
       }
     };
     shell.stdout.on('data', forward);
