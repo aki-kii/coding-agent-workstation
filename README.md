@@ -29,8 +29,7 @@ const workstation = new Workstation(this, 'Workstation', {
   startupScript: path.join(__dirname, 'startup.sh'),
 });
 
-// The caller needs bedrock-agentcore:InvokeAgentRuntime on the runtime. The terminal also
-// needs bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream, which grantInvoke does not add.
+// Grants bedrock-agentcore:InvokeAgentRuntime, and InvokeAgentRuntimeWithWebSocketStream for the terminal.
 workstation.grantInvoke(callerRole);
 ```
 

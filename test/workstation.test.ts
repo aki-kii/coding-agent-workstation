@@ -61,7 +61,7 @@ test('maxSessionLifetime beyond the instance cap is rejected', () => {
   ).toThrow(/maxSessionLifetime must be at most 1209600 seconds/);
 });
 
-test('grantInvoke allows invoking the runtime', () => {
+test('grantInvoke allows invoking the runtime and opening its terminal', () => {
   const testStack = stack();
   const workstation = new Workstation(testStack, 'Workstation', { vpc: vpc(testStack) });
   const role = new iam.Role(testStack, 'Caller', {
@@ -74,7 +74,10 @@ test('grantInvoke allows invoking the runtime', () => {
     PolicyDocument: {
       Statement: [
         {
-          Action: 'bedrock-agentcore:InvokeAgentRuntime',
+          Action: [
+            'bedrock-agentcore:InvokeAgentRuntime',
+            'bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream',
+          ],
           Effect: 'Allow',
         },
       ],

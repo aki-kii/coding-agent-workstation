@@ -164,14 +164,18 @@ export class Workstation extends Construct {
   }
 
   /**
-   * Allow the given principal to invoke the runtime.
+   * Allow the given principal to invoke the runtime and to open its terminal.
    *
-   * Invoking with a session ID that has no session yet starts one.
+   * Invoking with a session ID that has no session yet starts one. The terminal is the
+   * container's own `/ws`, reached with a WebSocket stream on the same session.
    */
   public grantInvoke(grantee: iam.IGrantable): iam.Grant {
     return iam.Grant.addToPrincipal({
       grantee,
-      actions: ['bedrock-agentcore:InvokeAgentRuntime'],
+      actions: [
+        'bedrock-agentcore:InvokeAgentRuntime',
+        'bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream',
+      ],
       resourceArns: [this.runtimeArn, `${this.runtimeArn}/*`],
     });
   }
