@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { chmod, copyFile, mkdir, realpath, stat } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, realpath, stat, symlink } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
@@ -7,8 +7,10 @@ import { WebSocketServer } from 'ws';
 const home = process.env.HOME;
 const idlePaddingSeconds = Number(process.env.WORKSTATION_IDLE_PADDING_SECONDS ?? 0);
 const startupScript = '/opt/workstation/startup.sh';
-const claudeSeed = '/opt/claude-code/bin/claude';
+// A native install in its own HOME: .local/bin/claude links to .local/share/claude/versions/<v>.
+const claudeSeed = '/opt/claude-code/.local/bin/claude';
 const claudeHome = path.join(home, '.local', 'bin', 'claude');
+const claudeVersions = path.join(home, '.local', 'share', 'claude', 'versions');
 const pollIntervalMs = 10_000;
 const pollTimeoutMs = 5_000;
 // Well under the 64 KB limit on a WebSocket frame.
@@ -83,10 +85,16 @@ async function exists(file) {
 async function startup() {
   await mkdir(path.dirname(claudeHome), { recursive: true });
   await mkdir(path.join(home, '.config'), { recursive: true });
+  // Lay the seed out the way the native installer does, so that Claude Code can update itself
+  // in HOME.
   if (!(await exists(claudeHome))) {
-    await copyFile(await realpath(claudeSeed), claudeHome);
-    await chmod(claudeHome, 0o755);
-    log(`seeded Claude Code into ${claudeHome}`);
+    const seedVersion = await realpath(claudeSeed);
+    const version = path.join(claudeVersions, path.basename(seedVersion));
+    await mkdir(claudeVersions, { recursive: true });
+    await copyFile(seedVersion, version);
+    await chmod(version, 0o755);
+    await symlink(version, claudeHome);
+    log(`seeded Claude Code ${path.basename(seedVersion)} into ${claudeHome}`);
   }
 
   if (await exists(startupScript)) {
