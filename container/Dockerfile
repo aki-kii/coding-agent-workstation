@@ -8,9 +8,9 @@ ARG AWS_CLI_VERSION=2.37.9
 ARG CLAUDE_CODE_VERSION=2.1.289
 ARG WS_VERSION=8.22.0
 
-# util-linux provides `script`, which gives the terminal its PTY.
+# util-linux provides `script`, which gives the terminal its PTY. The AWS CLI pages through less.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git curl ca-certificates unzip util-linux \
+  && apt-get install -y --no-install-recommends git curl ca-certificates unzip util-linux less \
   && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64-${AWS_CLI_VERSION}.zip" -o /tmp/awscliv2.zip \
