@@ -619,6 +619,7 @@ const workstationProps: WorkstationProps = { ... }
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.executionRole">executionRole</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The role the agent runs with. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.idleTimeout">idleTimeout</a></code> | <code>aws-cdk-lib.Duration</code> | How long a session stays up after the last activity. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.maxSessionLifetime">maxSessionLifetime</a></code> | <code>aws-cdk-lib.Duration</code> | How long a session may run before AgentCore stops it, however busy it is. |
+| <code><a href="#coding-agent-workstation.WorkstationProps.property.startupScript">startupScript</a></code> | <code>string</code> | Path to a local script that runs at every session start, as the image user. |
 
 ---
 
@@ -796,6 +797,26 @@ public readonly maxSessionLifetime: Duration;
 How long a session may run before AgentCore stops it, however busy it is.
 
 The instance itself is capped at 14 days, and this has to stay under that.
+
+---
+
+##### `startupScript`<sup>Optional</sup> <a name="startupScript" id="coding-agent-workstation.WorkstationProps.property.startupScript"></a>
+
+```typescript
+public readonly startupScript: string;
+```
+
+- *Type:* string
+- *Default:* no script; Claude Code Remote Control is started
+
+Path to a local script that runs at every session start, as the image user.
+
+The script is built into the image, and `/invocations` answers once it has exited. Without
+one, the workstation starts Claude Code in Remote Control server mode (`claude remote-control`)
+in the background.
+
+**Note**: changing the script rebuilds the image and updates the runtime in place. The
+capacity provider and its volumes are not replaced.
 
 ---
 

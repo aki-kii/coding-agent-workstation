@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { ArnFormat, Duration, Names, Stack } from 'aws-cdk-lib';
 import { CfnRuntime } from 'aws-cdk-lib/aws-bedrockagentcore';
@@ -47,6 +49,20 @@ export interface WorkstationProps extends WorkstationCapacityProviderProps {
    * @default Duration.hours(24)
    */
   readonly maxSessionLifetime?: Duration;
+
+  /**
+   * Path to a local script that runs at every session start, as the image user.
+   *
+   * The script is built into the image, and `/invocations` answers once it has exited. Without
+   * one, the workstation starts Claude Code in Remote Control server mode (`claude remote-control`)
+   * in the background.
+   *
+   * **Note**: changing the script rebuilds the image and updates the runtime in place. The
+   * capacity provider and its volumes are not replaced.
+   *
+   * @default - no script; Claude Code Remote Control is started
+   */
+  readonly startupScript?: string;
 }
 
 /**
@@ -106,7 +122,7 @@ export class Workstation extends Construct {
     this.executionRole = props.executionRole ?? this.createExecutionRole();
 
     const image = new DockerImageAsset(this, 'Image', {
-      directory: path.join(__dirname, '..', 'container'),
+      directory: this.buildContext(props.startupScript),
       platform: Platform.LINUX_ARM64,
     });
     if (!props.executionRole) image.repository.grantPull(this.executionRole);
@@ -158,6 +174,21 @@ export class Workstation extends Construct {
       actions: ['bedrock-agentcore:InvokeAgentRuntime'],
       resourceArns: [this.runtimeArn, `${this.runtimeArn}/*`],
     });
+  }
+
+  // The Dockerfile copies startup.sh from the build context when it is there.
+  private buildContext(startupScript?: string): string {
+    const container = path.join(__dirname, '..', 'container');
+    if (!startupScript) return container;
+    if (!fs.statSync(startupScript, { throwIfNoEntry: false })?.isFile()) {
+      throw new Error(`startupScript must be an existing file, got ${startupScript}`);
+    }
+
+    const staged = fs.mkdtempSync(path.join(os.tmpdir(), 'workstation-image-'));
+    fs.cpSync(container, staged, { recursive: true });
+    fs.copyFileSync(startupScript, path.join(staged, 'startup.sh'));
+    fs.chmodSync(path.join(staged, 'startup.sh'), 0o755);
+    return staged;
   }
 
   private createExecutionRole(): iam.IRole {
