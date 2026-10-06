@@ -11,6 +11,8 @@ const startupScript = '/opt/workstation/startup.sh';
 const claudeSeed = '/opt/claude-code/.local/bin/claude';
 const claudeHome = path.join(home, '.local', 'bin', 'claude');
 const claudeVersions = path.join(home, '.local', 'share', 'claude', 'versions');
+// Where the default Remote Control server works.
+const workspace = path.join(home, 'workspace');
 const pollIntervalMs = 10_000;
 const pollTimeoutMs = 5_000;
 // Well under the 64 KB limit on a WebSocket frame.
@@ -41,8 +43,8 @@ function status() {
 }
 
 // Run a command as the image user and log its output line by line.
-function run(label, command, args) {
-  const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+function run(label, command, args, cwd) {
+  const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   children.add(child);
   for (const stream of [child.stdout, child.stderr]) {
     let pending = '';
@@ -99,10 +101,13 @@ async function startup() {
 
   if (await exists(startupScript)) {
     log('running the startup script');
-    await run('startup', startupScript, []);
+    await run('startup', startupScript, [], home);
   } else {
-    log('no startup script, starting Remote Control');
-    await run('remote-control', 'claude', ['remote-control']);
+    // Claude Code never saves its trust answer for HOME itself, so Remote Control runs in a
+    // directory under it. Trust it once from the terminal.
+    await mkdir(workspace, { recursive: true });
+    log(`no startup script, starting Remote Control in ${workspace}`);
+    await run('remote-control', 'claude', ['remote-control'], workspace);
   }
 }
 

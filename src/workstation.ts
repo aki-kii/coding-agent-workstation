@@ -55,7 +55,7 @@ export interface WorkstationProps extends WorkstationCapacityProviderProps {
    *
    * The script is built into the image, and `/invocations` answers once it has exited. Without
    * one, the workstation starts Claude Code in Remote Control server mode (`claude remote-control`)
-   * in the background.
+   * in the background, in `~/workspace`.
    *
    * **Note**: changing the script rebuilds the image and updates the runtime in place. The
    * capacity provider and its volumes are not replaced.

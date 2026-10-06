@@ -605,7 +605,7 @@ exports[`default workstation 1`] = `
         "AgentRuntimeArtifact": {
           "ContainerConfiguration": {
             "ContainerUri": {
-              "Fn::Sub": "123456789012.dkr.ecr.us-east-1.\${AWS::URLSuffix}/cdk-hnb659fds-container-assets-123456789012-us-east-1:baecbd5702876fa126d8aa6e6deef1906f6ff776c897656404dfed7b970552a6",
+              "Fn::Sub": "123456789012.dkr.ecr.us-east-1.\${AWS::URLSuffix}/cdk-hnb659fds-container-assets-123456789012-us-east-1:6df9637c9f415d8d06ab36325e1a77ebd5aa9dbfdc8757b49c22a03d6a1bff57",
             },
           },
         },

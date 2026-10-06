@@ -57,7 +57,7 @@ new Workstation(scope: Construct, id: string, props: WorkstationProps)
 | --- | --- |
 | <code><a href="#coding-agent-workstation.Workstation.toString">toString</a></code> | Returns a string representation of this construct. |
 | <code><a href="#coding-agent-workstation.Workstation.with">with</a></code> | Applies one or more mixins to this construct. |
-| <code><a href="#coding-agent-workstation.Workstation.grantInvoke">grantInvoke</a></code> | Allow the given principal to invoke the runtime. |
+| <code><a href="#coding-agent-workstation.Workstation.grantInvoke">grantInvoke</a></code> | Allow the given principal to invoke the runtime and to open its terminal. |
 
 ---
 
@@ -96,9 +96,10 @@ The mixins to apply.
 public grantInvoke(grantee: IGrantable): Grant
 ```
 
-Allow the given principal to invoke the runtime.
+Allow the given principal to invoke the runtime and to open its terminal.
 
-Invoking with a session ID that has no session yet starts one.
+Invoking with a session ID that has no session yet starts one. The terminal is the
+container's own `/ws`, reached with a WebSocket stream on the same session.
 
 ###### `grantee`<sup>Required</sup> <a name="grantee" id="coding-agent-workstation.Workstation.grantInvoke.parameter.grantee"></a>
 
@@ -813,7 +814,7 @@ Path to a local script that runs at every session start, as the image user.
 
 The script is built into the image, and `/invocations` answers once it has exited. Without
 one, the workstation starts Claude Code in Remote Control server mode (`claude remote-control`)
-in the background.
+in the background, in `~/workspace`.
 
 **Note**: changing the script rebuilds the image and updates the runtime in place. The
 capacity provider and its volumes are not replaced.

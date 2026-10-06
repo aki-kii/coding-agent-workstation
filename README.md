@@ -43,7 +43,7 @@ The workstation reports itself busy while Claude Code is working (read from `cla
 
 `startupScript` is a path to a local file. It is built into the image and runs at every session start as the image user, with `HOME` on the workspace volume; `/invocations` answers when it exits. Changing it rebuilds the image and updates the runtime in place, leaving the capacity provider and its volumes alone.
 
-Without a script the container starts Claude Code in Remote Control server mode (`claude remote-control`) in the background, for use from claude.ai/code or the mobile app. That needs a claude.ai sign-in, done once in the terminal.
+Without a script the container starts Claude Code in Remote Control server mode (`claude remote-control`) in the background, in `~/workspace`, for use from claude.ai/code or the mobile app. That needs a claude.ai sign-in and a one-time confirmation, both done once in the terminal: run `claude auth login`, then `cd ~/workspace && claude remote-control` and answer its questions about Remote Control and trusting the directory. Claude Code never saves trust for `HOME` itself, which is why the server runs in a directory under it.
 
 ### Terminal
 
