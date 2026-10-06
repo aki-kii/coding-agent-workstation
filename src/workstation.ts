@@ -63,6 +63,22 @@ export interface WorkstationProps extends WorkstationCapacityProviderProps {
    * @default - no script; Claude Code Remote Control is started
    */
   readonly startupScript?: string;
+
+  /**
+   * Shell commands that add tools to the image, such as packages the startup script needs.
+   *
+   * They run once, as root, when the image is built, in order, from a single script that stops
+   * at the first failing command. The image's own user takes over again afterwards. The image is
+   * Debian, so `apt-get install -y <package>` works after an `apt-get update`.
+   *
+   * **Note**: everything the commands write ends up in the image, which anyone allowed to pull it
+   * can read. Never put tokens or other secrets here; give the execution role access to a secret
+   * and read it from the startup script instead. Changing the commands rebuilds the image and
+   * updates the runtime in place, like `startupScript`.
+   *
+   * @default - nothing is added
+   */
+  readonly imageCommands?: string[];
 }
 
 /**
@@ -122,7 +138,7 @@ export class Workstation extends Construct {
     this.executionRole = props.executionRole ?? this.createExecutionRole();
 
     const image = new DockerImageAsset(this, 'Image', {
-      directory: this.buildContext(props.startupScript),
+      directory: this.buildContext(props.startupScript, props.imageCommands ?? []),
       platform: Platform.LINUX_ARM64,
     });
     if (!props.executionRole) image.repository.grantPull(this.executionRole);
@@ -180,18 +196,29 @@ export class Workstation extends Construct {
     });
   }
 
-  // The Dockerfile copies startup.sh from the build context when it is there.
-  private buildContext(startupScript?: string): string {
+  // The Dockerfile copies startup.sh and image-setup.sh from the build context when they are
+  // there. The commands go into a script rather than the Dockerfile, so that they cannot add
+  // Dockerfile instructions of their own.
+  private buildContext(startupScript: string | undefined, imageCommands: string[]): string {
     const container = path.join(__dirname, '..', 'container');
-    if (!startupScript) return container;
-    if (!fs.statSync(startupScript, { throwIfNoEntry: false })?.isFile()) {
+    if (!startupScript && imageCommands.length === 0) return container;
+    if (startupScript && !fs.statSync(startupScript, { throwIfNoEntry: false })?.isFile()) {
       throw new Error(`startupScript must be an existing file, got ${startupScript}`);
     }
 
     const staged = fs.mkdtempSync(path.join(os.tmpdir(), 'workstation-image-'));
     fs.cpSync(container, staged, { recursive: true });
-    fs.copyFileSync(startupScript, path.join(staged, 'startup.sh'));
-    fs.chmodSync(path.join(staged, 'startup.sh'), 0o755);
+    if (startupScript) {
+      fs.copyFileSync(startupScript, path.join(staged, 'startup.sh'));
+      fs.chmodSync(path.join(staged, 'startup.sh'), 0o755);
+    }
+    if (imageCommands.length > 0) {
+      fs.writeFileSync(
+        path.join(staged, 'image-setup.sh'),
+        ['#!/bin/sh', 'set -eux', ...imageCommands, ''].join('\n'),
+        { mode: 0o755 },
+      );
+    }
     return staged;
   }
 

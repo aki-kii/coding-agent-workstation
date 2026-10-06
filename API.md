@@ -619,6 +619,7 @@ const workstationProps: WorkstationProps = { ... }
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.workspaceSizeGiB">workspaceSizeGiB</a></code> | <code>number</code> | The size of each session's workspace volume, in GiB. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.executionRole">executionRole</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The role the agent runs with. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.idleTimeout">idleTimeout</a></code> | <code>aws-cdk-lib.Duration</code> | How long a session stays up after the last activity. |
+| <code><a href="#coding-agent-workstation.WorkstationProps.property.imageCommands">imageCommands</a></code> | <code>string[]</code> | Shell commands that add tools to the image, such as packages the startup script needs. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.maxSessionLifetime">maxSessionLifetime</a></code> | <code>aws-cdk-lib.Duration</code> | How long a session may run before AgentCore stops it, however busy it is. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.startupScript">startupScript</a></code> | <code>string</code> | Path to a local script that runs at every session start, as the image user. |
 
@@ -783,6 +784,28 @@ How long a session stays up after the last activity.
 This is the whole idle time. The workstation reports itself busy for all but the last five
 minutes of it, and AgentCore's own idle timeout covers the rest. It must be at least five
 minutes.
+
+---
+
+##### `imageCommands`<sup>Optional</sup> <a name="imageCommands" id="coding-agent-workstation.WorkstationProps.property.imageCommands"></a>
+
+```typescript
+public readonly imageCommands: string[];
+```
+
+- *Type:* string[]
+- *Default:* nothing is added
+
+Shell commands that add tools to the image, such as packages the startup script needs.
+
+They run once, as root, when the image is built, in order, from a single script that stops
+at the first failing command. The image's own user takes over again afterwards. The image is
+Debian, so `apt-get install -y <package>` works after an `apt-get update`.
+
+**Note**: everything the commands write ends up in the image, which anyone allowed to pull it
+can read. Never put tokens or other secrets here; give the execution role access to a secret
+and read it from the startup script instead. Changing the commands rebuilds the image and
+updates the runtime in place, like `startupScript`.
 
 ---
 

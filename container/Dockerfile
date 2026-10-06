@@ -27,6 +27,13 @@ RUN curl -fsSL https://claude.ai/install.sh | HOME=/opt/claude-code bash -s "${C
 WORKDIR /opt/workstation
 RUN npm install --omit=dev --no-save --no-package-lock --prefix /opt/workstation "ws@${WS_VERSION}" \
   && npm cache clean --force
+# The construct stages the caller's imageCommands as image-setup.sh next to this file. They run
+# as root, here only, and the script does not stay in the image. The Dockerfile names
+# Dockerfile itself so that the COPY has a match without the script.
+COPY Dockerfile image-setup.sh* /tmp/workstation-setup/
+RUN if [ -f /tmp/workstation-setup/image-setup.sh ]; then sh /tmp/workstation-setup/image-setup.sh; fi \
+  && rm -rf /tmp/workstation-setup
+
 # The construct stages the caller's startup script as startup.sh next to this file. COPY
 # --chmod needs BuildKit, which not every builder has.
 COPY server.mjs startup.sh* /opt/workstation/

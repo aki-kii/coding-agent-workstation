@@ -106,6 +106,29 @@ test('startupScript is staged into the image build context as an executable star
   expect(fs.existsSync(path.join(context, 'Dockerfile'))).toBe(true);
 });
 
+test('imageCommands are staged into the image build context as one script that stops on failure', () => {
+  const app = new App();
+  const testStack = new Stack(app, 'Test', {
+    env: { account: '123456789012', region: 'us-east-1' },
+  });
+  new Workstation(testStack, 'Workstation', {
+    vpc: vpc(testStack),
+    imageCommands: ['apt-get update', 'apt-get install -y python3'],
+  });
+
+  const assembly = app.synth();
+  const asset = Object.values(
+    JSON.parse(fs.readFileSync(path.join(assembly.directory, 'Test.assets.json'), 'utf-8'))
+      .dockerImages,
+  )[0] as { source: { directory: string } };
+  const context = path.join(assembly.directory, asset.source.directory);
+
+  expect(fs.readFileSync(path.join(context, 'image-setup.sh'), 'utf-8')).toBe(
+    '#!/bin/sh\nset -eux\napt-get update\napt-get install -y python3\n',
+  );
+  expect(fs.existsSync(path.join(context, 'startup.sh'))).toBe(false);
+});
+
 test('a startupScript that is not a file is rejected', () => {
   const testStack = stack();
 

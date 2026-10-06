@@ -45,6 +45,24 @@ The workstation reports itself busy while Claude Code is working (read from `cla
 
 Without a script the container starts Claude Code in Remote Control server mode (`claude remote-control`) in the background, in `~/workspace`, for use from claude.ai/code or the mobile app. That needs a claude.ai sign-in and a one-time confirmation, both done once in the terminal: run `claude auth login`, then `cd ~/workspace && claude remote-control` and answer its questions about Remote Control and trusting the directory. Claude Code never saves trust for `HOME` itself, which is why the server runs in a directory under it.
 
+### Adding tools to the image
+
+`imageCommands` runs shell commands as root when the image is built, from one script that stops at the first failure. Use it for what a startup script needs, for example Python and Bun:
+
+```ts
+new Workstation(this, 'Workstation', {
+  vpc,
+  imageCommands: [
+    'apt-get update',
+    'apt-get install -y --no-install-recommends python3',
+    'rm -rf /var/lib/apt/lists/*',
+    'curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash',
+  ],
+});
+```
+
+Whatever the commands write is part of the image, so never put a secret in them. To give the agent a token, grant the execution role read access to a secret (`secret.grantRead(workstation.executionRole)`) and read it in the startup script.
+
 ### Terminal
 
 The image serves its own terminal on `/ws`: an interactive login shell on a PTY, reached through `InvokeAgentRuntimeWithWebSocketStream` with the same session ID. AgentCore's built-in interactive shell (`InvokeAgentRuntimeCommandShell`) is not supported on capacity-provider runtimes (confirmed in the sandbox on 2026-10-05). Window resizing is not supported.
