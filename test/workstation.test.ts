@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { App, Duration, Stack } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
@@ -58,7 +61,7 @@ test('maxSessionLifetime beyond the instance cap is rejected', () => {
   ).toThrow(/maxSessionLifetime must be at most 1209600 seconds/);
 });
 
-test('grantInvoke allows invoking the runtime', () => {
+test('grantInvoke allows invoking the runtime and opening its terminal', () => {
   const testStack = stack();
   const workstation = new Workstation(testStack, 'Workstation', { vpc: vpc(testStack) });
   const role = new iam.Role(testStack, 'Caller', {
@@ -71,12 +74,71 @@ test('grantInvoke allows invoking the runtime', () => {
     PolicyDocument: {
       Statement: [
         {
-          Action: 'bedrock-agentcore:InvokeAgentRuntime',
+          Action: [
+            'bedrock-agentcore:InvokeAgentRuntime',
+            'bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream',
+          ],
           Effect: 'Allow',
         },
       ],
     },
   });
+});
+
+test('startupScript is staged into the image build context as an executable startup.sh', () => {
+  const script = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'startup-test-')), 'my-script.sh');
+  fs.writeFileSync(script, '#!/bin/bash\necho hello\n');
+  const app = new App();
+  const testStack = new Stack(app, 'Test', {
+    env: { account: '123456789012', region: 'us-east-1' },
+  });
+  new Workstation(testStack, 'Workstation', { vpc: vpc(testStack), startupScript: script });
+
+  const assembly = app.synth();
+  const asset = Object.values(
+    JSON.parse(fs.readFileSync(path.join(assembly.directory, 'Test.assets.json'), 'utf-8'))
+      .dockerImages,
+  )[0] as { source: { directory: string } };
+  const context = path.join(assembly.directory, asset.source.directory);
+
+  expect(fs.readFileSync(path.join(context, 'startup.sh'), 'utf-8')).toContain('echo hello');
+  expect(fs.statSync(path.join(context, 'startup.sh')).mode & 0o777).toBe(0o755);
+  expect(fs.existsSync(path.join(context, 'Dockerfile'))).toBe(true);
+});
+
+test('imageCommands are staged into the image build context as one script that stops on failure', () => {
+  const app = new App();
+  const testStack = new Stack(app, 'Test', {
+    env: { account: '123456789012', region: 'us-east-1' },
+  });
+  new Workstation(testStack, 'Workstation', {
+    vpc: vpc(testStack),
+    imageCommands: ['apt-get update', 'apt-get install -y python3'],
+  });
+
+  const assembly = app.synth();
+  const asset = Object.values(
+    JSON.parse(fs.readFileSync(path.join(assembly.directory, 'Test.assets.json'), 'utf-8'))
+      .dockerImages,
+  )[0] as { source: { directory: string } };
+  const context = path.join(assembly.directory, asset.source.directory);
+
+  expect(fs.readFileSync(path.join(context, 'image-setup.sh'), 'utf-8')).toBe(
+    '#!/bin/sh\nset -eux\napt-get update\napt-get install -y python3\n',
+  );
+  expect(fs.existsSync(path.join(context, 'startup.sh'))).toBe(false);
+});
+
+test('a startupScript that is not a file is rejected', () => {
+  const testStack = stack();
+
+  expect(
+    () =>
+      new Workstation(testStack, 'Workstation', {
+        vpc: vpc(testStack),
+        startupScript: '/nonexistent/startup.sh',
+      }),
+  ).toThrow(/startupScript must be an existing file/);
 });
 
 test('an imported instance profile without its role needs an operator role', () => {

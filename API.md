@@ -57,7 +57,7 @@ new Workstation(scope: Construct, id: string, props: WorkstationProps)
 | --- | --- |
 | <code><a href="#coding-agent-workstation.Workstation.toString">toString</a></code> | Returns a string representation of this construct. |
 | <code><a href="#coding-agent-workstation.Workstation.with">with</a></code> | Applies one or more mixins to this construct. |
-| <code><a href="#coding-agent-workstation.Workstation.grantInvoke">grantInvoke</a></code> | Allow the given principal to invoke the runtime. |
+| <code><a href="#coding-agent-workstation.Workstation.grantInvoke">grantInvoke</a></code> | Allow the given principal to invoke the runtime and to open its terminal. |
 
 ---
 
@@ -96,9 +96,10 @@ The mixins to apply.
 public grantInvoke(grantee: IGrantable): Grant
 ```
 
-Allow the given principal to invoke the runtime.
+Allow the given principal to invoke the runtime and to open its terminal.
 
-Invoking with a session ID that has no session yet starts one.
+Invoking with a session ID that has no session yet starts one. The terminal is the
+container's own `/ws`, reached with a WebSocket stream on the same session.
 
 ###### `grantee`<sup>Required</sup> <a name="grantee" id="coding-agent-workstation.Workstation.grantInvoke.parameter.grantee"></a>
 
@@ -618,7 +619,9 @@ const workstationProps: WorkstationProps = { ... }
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.workspaceSizeGiB">workspaceSizeGiB</a></code> | <code>number</code> | The size of each session's workspace volume, in GiB. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.executionRole">executionRole</a></code> | <code>aws-cdk-lib.aws_iam.IRole</code> | The role the agent runs with. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.idleTimeout">idleTimeout</a></code> | <code>aws-cdk-lib.Duration</code> | How long a session stays up after the last activity. |
+| <code><a href="#coding-agent-workstation.WorkstationProps.property.imageCommands">imageCommands</a></code> | <code>string[]</code> | Shell commands that add tools to the image, such as packages the startup script needs. |
 | <code><a href="#coding-agent-workstation.WorkstationProps.property.maxSessionLifetime">maxSessionLifetime</a></code> | <code>aws-cdk-lib.Duration</code> | How long a session may run before AgentCore stops it, however busy it is. |
+| <code><a href="#coding-agent-workstation.WorkstationProps.property.startupScript">startupScript</a></code> | <code>string</code> | Path to a local script that runs at every session start, as the image user. |
 
 ---
 
@@ -784,6 +787,28 @@ minutes.
 
 ---
 
+##### `imageCommands`<sup>Optional</sup> <a name="imageCommands" id="coding-agent-workstation.WorkstationProps.property.imageCommands"></a>
+
+```typescript
+public readonly imageCommands: string[];
+```
+
+- *Type:* string[]
+- *Default:* nothing is added
+
+Shell commands that add tools to the image, such as packages the startup script needs.
+
+They run once, as root, when the image is built, in order, from a single script that stops
+at the first failing command. The image's own user takes over again afterwards. The image is
+Debian, so `apt-get install -y <package>` works after an `apt-get update`.
+
+**Note**: everything the commands write ends up in the image, which anyone allowed to pull it
+can read. Never put tokens or other secrets here; give the execution role access to a secret
+and read it from the startup script instead. Changing the commands rebuilds the image and
+updates the runtime in place, like `startupScript`.
+
+---
+
 ##### `maxSessionLifetime`<sup>Optional</sup> <a name="maxSessionLifetime" id="coding-agent-workstation.WorkstationProps.property.maxSessionLifetime"></a>
 
 ```typescript
@@ -796,6 +821,26 @@ public readonly maxSessionLifetime: Duration;
 How long a session may run before AgentCore stops it, however busy it is.
 
 The instance itself is capped at 14 days, and this has to stay under that.
+
+---
+
+##### `startupScript`<sup>Optional</sup> <a name="startupScript" id="coding-agent-workstation.WorkstationProps.property.startupScript"></a>
+
+```typescript
+public readonly startupScript: string;
+```
+
+- *Type:* string
+- *Default:* no script; Claude Code Remote Control is started
+
+Path to a local script that runs at every session start, as the image user.
+
+The script is built into the image, and `/invocations` answers once it has exited. Without
+one, the workstation starts Claude Code in Remote Control server mode (`claude remote-control`)
+in the background, in `~/workspace`.
+
+**Note**: changing the script rebuilds the image and updates the runtime in place. The
+capacity provider and its volumes are not replaced.
 
 ---
 
