@@ -6,7 +6,8 @@
 
     python3 connect.py <runtime-arn> <session-id>
 
-Uses the usual AWS credentials (AWS_PROFILE, CloudShell's own, and so on). Leave with `exit`.
+Uses the usual AWS credentials (AWS_PROFILE, CloudShell's own, and so on). A stopped session takes about
+a minute to start before the shell appears. Leave with `exit`.
 """
 import asyncio
 import base64
@@ -44,7 +45,7 @@ def signed_connection(runtime_arn: str, session_id: str):
 
 async def main(runtime_arn: str, session_id: str) -> None:
     url, headers = signed_connection(runtime_arn, session_id)
-    async with websockets.connect(url, additional_headers=headers, max_size=None) as ws:
+    async with websockets.connect(url, additional_headers=headers, max_size=None, open_timeout=180) as ws:
         loop = asyncio.get_running_loop()
         stdin = sys.stdin.fileno()
         queue = asyncio.Queue()
