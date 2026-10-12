@@ -177,6 +177,13 @@ export class Workstation extends Construct {
 
     this.runtimeArn = runtime.attrAgentRuntimeArn;
     this.runtimeId = runtime.attrAgentRuntimeId;
+
+    // The container signs terminal URLs for its callers with this role.
+    iam.Grant.addToPrincipal({
+      grantee: this.executionRole,
+      actions: ['bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream'],
+      resourceArns: [this.runtimeArn, `${this.runtimeArn}/*`],
+    });
   }
 
   /**

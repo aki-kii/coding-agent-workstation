@@ -2,7 +2,14 @@ import { execFile, spawn } from 'node:child_process';
 import { chmod, copyFile, mkdir, realpath, stat, symlink } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { WebSocketServer } from 'ws';
+
+// The signing packages are CommonJS without named exports that ESM can see.
+const require = createRequire(import.meta.url);
+const { Sha256 } = require('@aws-crypto/sha256-js');
+const { defaultProvider } = require('@aws-sdk/credential-provider-node');
+const { SignatureV4 } = require('@smithy/signature-v4');
 
 const home = process.env.HOME;
 const idlePaddingSeconds = Number(process.env.WORKSTATION_IDLE_PADDING_SECONDS ?? 0);
@@ -17,6 +24,10 @@ const pollIntervalMs = 10_000;
 const pollTimeoutMs = 5_000;
 // Well under the 64 KB limit on a WebSocket frame.
 const maxFrameBytes = 16 * 1024;
+
+// The longest a presigned terminal URL may live.
+const terminalUrlSeconds = 300;
+const sessionHeader = 'x-amzn-bedrock-agentcore-runtime-session-id';
 
 const startedAt = Date.now();
 // The container reports itself busy until idlePaddingSeconds after this time.
@@ -155,20 +166,72 @@ const server = createServer((req, res) => {
 
   if (url.pathname === '/invocations') {
     lastBusy = Date.now();
-    // Drain the body; nothing in it is used.
-    req.resume();
-    void startupDone.then(() => {
+    void (async () => {
+      const body = await readBody(req);
+      await startupDone;
       lastBusy = Date.now();
+      const reply = { status: 'ready', startedAt: new Date(startedAt).toISOString(), home };
+      const sessionId = req.headers[sessionHeader];
+      // The container cannot learn its own runtime ARN, so the caller passes it in the payload.
+      const runtimeArn = parseRuntimeArn(body);
+      if (typeof sessionId === 'string' && runtimeArn) {
+        try {
+          reply.terminalUrl = await presignTerminalUrl(runtimeArn, sessionId);
+        } catch (error) {
+          log(`presigning the terminal URL failed: ${error.message}`);
+        }
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({ status: 'ready', startedAt: new Date(startedAt).toISOString(), home }),
-      );
-    });
+      res.end(JSON.stringify(reply));
+    })();
     return;
   }
 
   res.writeHead(404).end();
 });
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+    req.on('error', () => resolve(''));
+  });
+}
+
+function parseRuntimeArn(body) {
+  try {
+    const { runtimeArn } = JSON.parse(body);
+    return typeof runtimeArn === 'string' && runtimeArn.startsWith('arn:') ? runtimeArn : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// A wss:// URL for /ws on this session, signed with the execution role the same way as the
+// AgentCore SDK's generate_presigned_url.
+async function presignTerminalUrl(runtimeArn, sessionId) {
+  const region = runtimeArn.split(':')[3];
+  const hostname = `bedrock-agentcore.${region}.amazonaws.com`;
+  const signer = new SignatureV4({
+    service: 'bedrock-agentcore',
+    region,
+    credentials: defaultProvider(),
+    sha256: Sha256,
+  });
+  const signed = await signer.presign(
+    {
+      method: 'GET',
+      protocol: 'https:',
+      hostname,
+      path: `/runtimes/${encodeURIComponent(runtimeArn)}/ws`,
+      query: { 'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': sessionId },
+      headers: { host: hostname },
+    },
+    { expiresIn: terminalUrlSeconds },
+  );
+  return `wss://${hostname}${signed.path}?${new URLSearchParams(signed.query)}`;
+}
 
 // The terminal does not support window resizing: `script` has no way to receive a new size.
 const wss = new WebSocketServer({ noServer: true });

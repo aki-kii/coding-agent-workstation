@@ -7,6 +7,9 @@ ARG WORKSTATION_UID=1001
 ARG AWS_CLI_VERSION=2.37.9
 ARG CLAUDE_CODE_VERSION=2.1.289
 ARG WS_VERSION=8.22.0
+ARG SIGNATURE_V4_VERSION=5.7.4
+ARG CREDENTIAL_PROVIDER_VERSION=3.972.85
+ARG SHA256_VERSION=5.2.0
 
 # util-linux provides `script`, which gives the terminal its PTY. The AWS CLI pages through less.
 RUN apt-get update \
@@ -26,6 +29,9 @@ RUN curl -fsSL https://claude.ai/install.sh | HOME=/opt/claude-code bash -s "${C
 
 WORKDIR /opt/workstation
 RUN npm install --omit=dev --no-save --no-package-lock --prefix /opt/workstation "ws@${WS_VERSION}" \
+    "@smithy/signature-v4@${SIGNATURE_V4_VERSION}" \
+    "@aws-sdk/credential-provider-node@${CREDENTIAL_PROVIDER_VERSION}" \
+    "@aws-crypto/sha256-js@${SHA256_VERSION}" \
   && npm cache clean --force
 # The construct stages the caller's imageCommands as image-setup.sh next to this file. They run
 # as root, here only, and the script does not stay in the image. The Dockerfile names
